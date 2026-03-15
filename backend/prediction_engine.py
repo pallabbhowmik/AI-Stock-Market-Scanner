@@ -74,7 +74,7 @@ def train_models(all_data: dict[str, pd.DataFrame]) -> dict:
             continue
         required = feature_cols + ["direction"]
         clean = df.dropna(subset=required)
-        if len(clean) >= 50:
+        if len(clean) >= 30:
             dfs.append(clean)
 
     if not dfs:

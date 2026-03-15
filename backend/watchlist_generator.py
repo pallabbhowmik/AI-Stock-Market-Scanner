@@ -184,10 +184,14 @@ def run_full_scan(max_symbols: int = 0, retrain: bool = False,
             explanation = " | ".join(explanation_parts)
 
             contributions = meta_result.get("strategy_contributions", {})
+            # Use meta-strategy confidence when ML models unavailable
+            raw_confidence = pred["confidence"]
+            if raw_confidence == 0 and meta_result.get("final_score", 0) > 0:
+                raw_confidence = round(min(meta_result["final_score"], 1.0), 4)
             all_predictions.append({
                 "symbol": sym,
                 "signal": meta_result.get("final_signal", pred["signal"]),
-                "confidence": pred["confidence"],
+                "confidence": raw_confidence,
                 "ai_probability": pred["ai_probability"],
                 "momentum_score": momentum,
                 "breakout_score": breakout["score"],

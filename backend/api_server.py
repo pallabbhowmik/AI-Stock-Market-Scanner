@@ -317,7 +317,22 @@ async def trigger_quick_scan():
 @app.get("/api/scan/status")
 async def scan_status():
     """Get current scan status."""
-    return _scan_status
+    import numpy as np
+
+    def _sanitize(obj):
+        if isinstance(obj, dict):
+            return {k: _sanitize(v) for k, v in obj.items()}
+        if isinstance(obj, (list, tuple)):
+            return [_sanitize(v) for v in obj]
+        if isinstance(obj, (np.bool_, np.integer)):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return obj
+
+    return _sanitize(_scan_status)
 
 
 @app.get("/api/scan/logs")
