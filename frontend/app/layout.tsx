@@ -1,51 +1,38 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import Link from "next/link";
+import { NavBar } from "./NavBar";
 
 export const metadata: Metadata = {
   title: "AI Stock Scanner – Indian Market",
   description: "AI-powered stock market scanning and prediction platform for the Indian stock market",
 };
 
-function Navbar() {
-  const links = [
-    { href: "/", label: "Dashboard" },
-    { href: "/watchlist", label: "Watchlist" },
-    { href: "/paper-trading", label: "Paper Trading" },
-    { href: "/explorer", label: "Explorer" },
-    { href: "/help", label: "Help" },
-  ];
-
-  return (
-    <nav className="sticky top-0 z-40 border-b border-slate-700 bg-slate-900/90 backdrop-blur">
-      <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
-        <Link href="/" className="flex items-center gap-2 text-lg font-bold text-white">
-          <span className="text-2xl">📈</span> AI Stock Scanner
-        </Link>
-        <div className="flex items-center gap-6">
-          {links.map((l) => (
-            <Link
-              key={l.href}
-              href={l.href}
-              className="text-sm text-slate-300 transition hover:text-white"
-            >
-              {l.label}
-            </Link>
-          ))}
-        </div>
-      </div>
-    </nav>
-  );
-}
-
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
       <body className="min-h-screen bg-background text-slate-100 antialiased">
-        <Navbar />
-        <main className="mx-auto max-w-7xl px-4 py-6">{children}</main>
-        <footer className="border-t border-slate-800 py-6 text-center text-xs text-slate-500">
-          AI Stock Scanner &middot; For personal educational use only &middot; Not financial advice
+        <NavBar />
+        <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6">{children}</main>
+        <footer className="border-t border-slate-800 bg-slate-900/50">
+          <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
+            <div className="flex flex-col items-center gap-4 sm:flex-row sm:justify-between">
+              <div className="flex items-center gap-2 text-sm text-slate-400">
+                <span className="text-lg">📈</span>
+                <span className="font-semibold text-slate-300">AI Stock Scanner</span>
+              </div>
+              <div className="flex flex-wrap justify-center gap-4 text-xs text-slate-500">
+                <Link href="/help" className="hover:text-slate-300 transition">Help & Guide</Link>
+                <span>&middot;</span>
+                <span>For educational use only</span>
+                <span>&middot;</span>
+                <span>Not financial advice</span>
+              </div>
+              <div className="text-xs text-slate-600">
+                Built with AI &middot; NSE Data via Yahoo Finance
+              </div>
+            </div>
+          </div>
         </footer>
       </body>
     </html>

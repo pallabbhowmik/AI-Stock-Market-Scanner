@@ -38,22 +38,25 @@ body {
 .score-bar-fill {
   height: 100%;
   border-radius: 4px;
-  transition: width 0.6s ease;
+  transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* Card */
 .card {
-  @apply rounded-xl border border-slate-700 bg-slate-800 p-5;
+  @apply rounded-xl border border-slate-700/80 bg-slate-800/90 p-5 backdrop-blur-sm;
+}
+.card-hover {
+  @apply card transition-all duration-200 hover:border-slate-500/80 hover:bg-slate-800 hover:shadow-lg hover:shadow-slate-900/50;
 }
 
 /* Tooltip */
 .tooltip-trigger {
   position: relative;
   cursor: help;
-  border-bottom: 1px dotted #94a3b8;
 }
 .tooltip-trigger:hover .tooltip-content {
   display: block;
+  animation: tooltipFadeIn 0.15s ease-out;
 }
 .tooltip-content {
   display: none;
@@ -67,9 +70,19 @@ body {
   padding: 8px 12px;
   font-size: 0.8rem;
   color: #cbd5e1;
-  width: 220px;
+  width: 240px;
   z-index: 50;
   margin-bottom: 6px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+}
+@keyframes tooltipFadeIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(4px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+/* Info badge (for beginner-friendly labels) */
+.info-badge {
+  @apply inline-flex items-center gap-1 rounded-md bg-blue-900/30 border border-blue-700/30 px-2 py-0.5 text-xs text-blue-300;
 }
 
 /* Pulse animation for live status */
@@ -81,8 +94,53 @@ body {
   animation: pulse-dot 2s ease-in-out infinite;
 }
 
+/* Skeleton shimmer */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.skeleton {
+  background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+  border-radius: 8px;
+}
+
+/* Fade in for page transitions */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-in {
+  animation: fadeInUp 0.4s ease-out;
+}
+
+/* Gradient text */
+.gradient-text {
+  background: linear-gradient(135deg, #60a5fa, #a78bfa);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Progress spinner */
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.animate-spin-slow {
+  animation: spin-slow 2s linear infinite;
+}
+
 /* Scrollbar */
-::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: var(--background); }
 ::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+
+/* Focus ring for accessibility */
+*:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}

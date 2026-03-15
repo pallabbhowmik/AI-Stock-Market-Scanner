@@ -16,8 +16,20 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
+import {
+  Info,
+  Loader2,
+  Wallet,
+  TrendingUp,
+  TrendingDown,
+  RotateCcw,
+  Zap,
+  Trophy,
+  ArrowRight,
+} from "lucide-react";
+import Link from "next/link";
 
-/* ── Formatting helpers ─────────────────────────────────────────────────── */
+/* ── Helpers ────────────────────────────────────────────────────────────── */
 
 function fmt(n: number, decimals = 2) {
   return n.toLocaleString("en-IN", {
@@ -32,14 +44,27 @@ function clr(n: number) {
   return n > 0 ? "text-green-400" : n < 0 ? "text-red-400" : "text-slate-300";
 }
 
+function Tip({ text }: { text: string }) {
+  return (
+    <span className="tooltip-trigger ml-1 inline-flex">
+      <Info size={13} className="text-slate-500" />
+      <span className="tooltip-content">{text}</span>
+    </span>
+  );
+}
+
 /* ── Stat Card ──────────────────────────────────────────────────────────── */
 
-function Stat({ label, value, sub, color }: {
-  label: string; value: string; sub?: string; color?: string;
+function Stat({ label, value, sub, color, tip, icon: Icon }: {
+  label: string; value: string; sub?: string; color?: string; tip?: string; icon?: React.ElementType;
 }) {
   return (
-    <div className="card flex flex-col gap-1">
-      <span className="text-xs text-slate-400">{label}</span>
+    <div className="card-hover flex flex-col gap-1">
+      <span className="text-xs text-slate-400 flex items-center gap-1">
+        {Icon && <Icon size={12} />}
+        {label}
+        {tip && <Tip text={tip} />}
+      </span>
       <span className={`text-xl font-bold ${color || "text-white"}`}>{value}</span>
       {sub && <span className={`text-xs ${color || "text-slate-400"}`}>{sub}</span>}
     </div>
@@ -81,13 +106,16 @@ function OrderForm({ onSuccess }: { onSuccess: () => void }) {
   };
 
   return (
-    <div className="card">
-      <h3 className="mb-3 text-sm font-semibold text-slate-300">Place Paper Order</h3>
+    <div className="card animate-in">
+      <div className="flex items-center gap-2 mb-3">
+        <h3 className="text-sm font-semibold text-slate-300">Place Paper Order</h3>
+        <Tip text="Paper orders use virtual money. Enter a stock symbol (e.g., RELIANCE), choose BUY or SELL, and set quantity (0 = auto-size based on your available cash)." />
+      </div>
       <div className="flex flex-wrap items-end gap-3">
         <div>
           <label className="mb-1 block text-xs text-slate-400">Symbol</label>
           <input
-            className="w-32 rounded bg-slate-800 px-2 py-1.5 text-sm text-white outline-none focus:ring-1 focus:ring-blue-500"
+            className="w-32 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-white outline-none focus:border-accent"
             placeholder="RELIANCE"
             value={symbol}
             onChange={(e) => setSymbol(e.target.value)}
@@ -95,19 +123,31 @@ function OrderForm({ onSuccess }: { onSuccess: () => void }) {
         </div>
         <div>
           <label className="mb-1 block text-xs text-slate-400">Side</label>
-          <select
-            className="rounded bg-slate-800 px-2 py-1.5 text-sm text-white outline-none"
-            value={side}
-            onChange={(e) => setSide(e.target.value)}
-          >
-            <option value="BUY">BUY</option>
-            <option value="SELL">SELL</option>
-          </select>
+          <div className="flex gap-1">
+            <button
+              onClick={() => setSide("BUY")}
+              className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
+                side === "BUY" ? "bg-green-600 text-white" : "bg-slate-700 text-slate-300 hover:bg-slate-600"
+              }`}
+            >
+              <TrendingUp size={14} className="inline mr-1" /> BUY
+            </button>
+            <button
+              onClick={() => setSide("SELL")}
+              className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
+                side === "SELL" ? "bg-red-600 text-white" : "bg-slate-700 text-slate-300 hover:bg-slate-600"
+              }`}
+            >
+              <TrendingDown size={14} className="inline mr-1" /> SELL
+            </button>
+          </div>
         </div>
         <div>
-          <label className="mb-1 block text-xs text-slate-400">Qty (0=auto)</label>
+          <label className="mb-1 block text-xs text-slate-400">
+            Qty <span className="text-slate-600">(0 = auto)</span>
+          </label>
           <input
-            className="w-20 rounded bg-slate-800 px-2 py-1.5 text-sm text-white outline-none focus:ring-1 focus:ring-blue-500"
+            className="w-20 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-white outline-none focus:border-accent"
             type="number"
             min={0}
             value={qty}
@@ -116,17 +156,18 @@ function OrderForm({ onSuccess }: { onSuccess: () => void }) {
         </div>
         <button
           onClick={submit}
-          disabled={busy}
-          className={`rounded px-4 py-1.5 text-sm font-medium transition ${
-            side === "BUY"
-              ? "bg-green-600 hover:bg-green-500"
-              : "bg-red-600 hover:bg-red-500"
-          } text-white disabled:opacity-50`}
+          disabled={busy || !symbol.trim()}
+          className="flex items-center gap-1.5 rounded-lg bg-accent px-5 py-2 text-sm font-medium text-white transition hover:bg-blue-600 disabled:opacity-50"
         >
-          {busy ? "Placing…" : side}
+          {busy ? <Loader2 size={14} className="animate-spin" /> : <ArrowRight size={14} />}
+          {busy ? "Placing…" : "Place Order"}
         </button>
       </div>
-      {msg && <p className="mt-2 text-xs text-slate-300">{msg}</p>}
+      {msg && (
+        <p className={`mt-2 text-xs ${msg.startsWith("✓") ? "text-green-400" : msg.startsWith("Error") ? "text-red-400" : "text-slate-300"}`}>
+          {msg}
+        </p>
+      )}
     </div>
   );
 }
@@ -163,7 +204,7 @@ export default function PaperTradingPage() {
     setAutoMsg("Running…");
     try {
       const res = await api.autoExecutePaper();
-      setAutoMsg(`Executed ${res.executed} trade(s)`);
+      setAutoMsg(`✓ Executed ${res.executed} trade(s) based on AI signals`);
       await load();
     } catch (e: any) {
       setAutoMsg(`Error: ${e.message}`);
@@ -173,58 +214,108 @@ export default function PaperTradingPage() {
   const handleReset = async () => {
     if (!confirm("Reset paper portfolio? All trades will be cleared.")) return;
     await api.resetPaperPortfolio();
+    setAutoMsg("");
     await load();
   };
 
   if (loading) {
     return (
-      <div className="flex min-h-[60vh] items-center justify-center text-slate-400">
-        Loading paper trading dashboard…
+      <div className="flex min-h-[60vh] items-center justify-center animate-in">
+        <div className="text-center space-y-3">
+          <Loader2 size={32} className="animate-spin text-accent mx-auto" />
+          <p className="text-slate-400">Loading paper trading dashboard…</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-in">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">Paper Trading</h1>
-          <p className="mt-1 text-sm text-slate-400">
-            Simulate trades with virtual money (₹1,00,000). No real money at risk.
+          <p className="text-sm text-slate-400">
+            Practice trading with ₹1,00,000 virtual cash — no real money at risk
+            <Tip text="Paper trading lets you test strategies without risking real money. It simulates buy and sell orders at real market prices." />
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button
             onClick={handleAutoExecute}
-            className="rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-500 transition"
+            className="flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-blue-600 transition"
           >
-            Auto-Execute Signals
+            <Zap size={14} /> Auto-Execute Signals
           </button>
           <button
             onClick={handleReset}
-            className="rounded bg-slate-700 px-3 py-1.5 text-sm font-medium text-slate-300 hover:bg-slate-600 transition"
+            className="flex items-center gap-1.5 rounded-lg bg-slate-700 px-4 py-2 text-sm text-slate-300 border border-slate-600 hover:bg-slate-600 transition"
           >
-            Reset Portfolio
+            <RotateCcw size={14} /> Reset
           </button>
         </div>
       </div>
-      {autoMsg && <p className="text-xs text-slate-300">{autoMsg}</p>}
+
+      {autoMsg && (
+        <div className={`rounded-lg border px-4 py-2.5 text-sm ${
+          autoMsg.startsWith("✓") ? "border-green-800 bg-green-900/30 text-green-300"
+          : autoMsg.startsWith("Error") ? "border-red-800 bg-red-900/30 text-red-300"
+          : "border-blue-800 bg-blue-900/30 text-blue-300"
+        }`}>
+          {autoMsg}
+        </div>
+      )}
+
+      {/* Getting Started (show when no trades) */}
+      {(!trades || trades.length === 0) && !portfolio?.open_positions && (
+        <div className="rounded-xl border border-purple-700/30 bg-gradient-to-r from-purple-900/20 via-blue-900/20 to-slate-900 p-6 animate-in">
+          <h2 className="text-lg font-bold text-white mb-2">Getting Started with Paper Trading</h2>
+          <div className="grid gap-4 sm:grid-cols-3 text-sm text-slate-300">
+            <div className="flex gap-3">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-900/50 text-blue-400 font-bold text-sm">1</div>
+              <div>
+                <p className="font-medium text-white">Run a scan</p>
+                <p className="text-xs text-slate-400">Get AI predictions from the <Link href="/" className="text-accent hover:underline">Dashboard</Link></p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-purple-900/50 text-purple-400 font-bold text-sm">2</div>
+              <div>
+                <p className="font-medium text-white">Auto-execute or manual</p>
+                <p className="text-xs text-slate-400">Click &quot;Auto-Execute&quot; or place orders manually below</p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-green-900/50 text-green-400 font-bold text-sm">3</div>
+              <div>
+                <p className="font-medium text-white">Track performance</p>
+                <p className="text-xs text-slate-400">Watch your P&L, win rate, and Sharpe ratio</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Portfolio Stats */}
       {portfolio && (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-          <Stat label="Portfolio Value" value={`₹${fmt(portfolio.portfolio_value)}`} />
-          <Stat label="Cash" value={`₹${fmt(portfolio.cash)}`} />
-          <Stat label="Invested" value={`₹${fmt(portfolio.invested)}`} />
+          <Stat icon={Wallet} label="Portfolio Value" value={`₹${fmt(portfolio.portfolio_value)}`}
+            tip="Total value of your portfolio: cash + value of all open positions" />
+          <Stat label="Cash" value={`₹${fmt(portfolio.cash)}`}
+            tip="Available cash to buy new stocks" />
+          <Stat label="Invested" value={`₹${fmt(portfolio.invested)}`}
+            tip="Total amount currently invested in stocks" />
           <Stat
             label="Total Return"
             value={`₹${fmt(portfolio.total_return)}`}
             sub={fmtPct(portfolio.total_return_pct)}
             color={clr(portfolio.total_return)}
+            tip="How much money you've made (or lost) since starting"
           />
-          <Stat label="Open Positions" value={String(portfolio.open_positions)} />
-          <Stat label="Mode" value={portfolio.mode} color="text-yellow-400" />
+          <Stat label="Open Positions" value={String(portfolio.open_positions)}
+            tip="Number of stocks you currently hold" />
+          <Stat label="Mode" value={portfolio.mode} color="text-yellow-400"
+            tip="PAPER = virtual money only, no real trades" />
         </div>
       )}
 
@@ -233,8 +324,11 @@ export default function PaperTradingPage() {
 
       {/* Open Positions */}
       {portfolio && portfolio.positions.length > 0 && (
-        <div className="card overflow-x-auto">
-          <h3 className="mb-3 text-sm font-semibold text-slate-300">Open Positions</h3>
+        <div className="card animate-in overflow-x-auto">
+          <div className="flex items-center gap-2 mb-3">
+            <h3 className="text-sm font-semibold text-slate-300">Open Positions</h3>
+            <Tip text="Stocks you currently hold. Unrealised P&L shows profit/loss if you sold now." />
+          </div>
           <table className="w-full text-left text-sm">
             <thead className="text-xs text-slate-400">
               <tr>
@@ -250,8 +344,12 @@ export default function PaperTradingPage() {
             </thead>
             <tbody>
               {portfolio.positions.map((p) => (
-                <tr key={p.symbol} className="border-t border-slate-700/50">
-                  <td className="py-2 font-medium">{p.symbol}</td>
+                <tr key={p.symbol} className="border-t border-slate-700/50 hover:bg-slate-700/20 transition">
+                  <td className="py-2 font-medium">
+                    <Link href={`/explorer?stock=${p.symbol}`} className="text-white hover:text-accent transition">
+                      {p.symbol}
+                    </Link>
+                  </td>
                   <td className="py-2 text-right">{p.qty}</td>
                   <td className="py-2 text-right">₹{fmt(p.avg_price)}</td>
                   <td className="py-2 text-right">₹{fmt(p.live_price)}</td>
@@ -273,8 +371,12 @@ export default function PaperTradingPage() {
       {/* Performance Stats + PnL Chart */}
       {perf && perf.total_trades > 0 && (
         <div className="grid gap-4 lg:grid-cols-2">
-          <div className="card">
-            <h3 className="mb-3 text-sm font-semibold text-slate-300">Performance Stats</h3>
+          <div className="card animate-in">
+            <div className="flex items-center gap-2 mb-3">
+              <Trophy size={16} className="text-yellow-400" />
+              <h3 className="text-sm font-semibold text-slate-300">Performance Stats</h3>
+              <Tip text="Key metrics to evaluate how well your trading strategy is performing." />
+            </div>
             <div className="grid grid-cols-2 gap-y-2 text-sm">
               <span className="text-slate-400">Total Trades</span>
               <span className="text-right">{perf.total_trades}</span>
@@ -284,7 +386,7 @@ export default function PaperTradingPage() {
                 {" / "}
                 <span className="text-red-400">{perf.losses}</span>
               </span>
-              <span className="text-slate-400">Win Rate</span>
+              <span className="text-slate-400">Win Rate <Tip text="Percentage of profitable trades" /></span>
               <span className="text-right">{(perf.win_rate * 100).toFixed(1)}%</span>
               <span className="text-slate-400">Total P&L</span>
               <span className={`text-right font-medium ${clr(perf.total_pnl)}`}>
@@ -294,11 +396,11 @@ export default function PaperTradingPage() {
               <span className="text-right text-green-400">₹{fmt(perf.avg_profit)}</span>
               <span className="text-slate-400">Avg Loss</span>
               <span className="text-right text-red-400">₹{fmt(perf.avg_loss)}</span>
-              <span className="text-slate-400">Profit Factor</span>
+              <span className="text-slate-400">Profit Factor <Tip text="Total profits / total losses. Above 1.5 is good." /></span>
               <span className="text-right">{perf.profit_factor}</span>
-              <span className="text-slate-400">Sharpe Ratio</span>
+              <span className="text-slate-400">Sharpe Ratio <Tip text="Risk-adjusted return. Higher = better returns per unit of risk. Above 1.0 is decent." /></span>
               <span className="text-right">{perf.sharpe_ratio}</span>
-              <span className="text-slate-400">Max Drawdown</span>
+              <span className="text-slate-400">Max Drawdown <Tip text="Largest peak-to-trough drop — measures worst case scenario" /></span>
               <span className="text-right text-red-400">₹{fmt(perf.max_drawdown)}</span>
               <span className="text-slate-400">Best Trade</span>
               <span className="text-right text-green-400">₹{fmt(perf.best_trade)}</span>
@@ -308,7 +410,7 @@ export default function PaperTradingPage() {
           </div>
 
           {perf.daily_pnl.length > 0 && (
-            <div className="card">
+            <div className="card animate-in">
               <h3 className="mb-3 text-sm font-semibold text-slate-300">Daily P&L</h3>
               <ResponsiveContainer width="100%" height={220}>
                 <LineChart data={perf.daily_pnl}>
@@ -319,13 +421,7 @@ export default function PaperTradingPage() {
                     contentStyle={{ background: "#1e293b", border: "1px solid #334155", fontSize: 12 }}
                     labelStyle={{ color: "#94a3b8" }}
                   />
-                  <Line
-                    type="monotone"
-                    dataKey="pnl"
-                    stroke="#60a5fa"
-                    strokeWidth={2}
-                    dot={false}
-                  />
+                  <Line type="monotone" dataKey="pnl" stroke="#60a5fa" strokeWidth={2} dot={false} />
                 </LineChart>
               </ResponsiveContainer>
             </div>
@@ -335,7 +431,7 @@ export default function PaperTradingPage() {
 
       {/* Trade History */}
       {trades.length > 0 && (
-        <div className="card overflow-x-auto">
+        <div className="card animate-in overflow-x-auto">
           <h3 className="mb-3 text-sm font-semibold text-slate-300">Trade History</h3>
           <table className="w-full text-left text-sm">
             <thead className="text-xs text-slate-400">
@@ -352,7 +448,7 @@ export default function PaperTradingPage() {
             </thead>
             <tbody>
               {trades.map((t) => (
-                <tr key={t.id} className="border-t border-slate-700/50">
+                <tr key={t.id} className="border-t border-slate-700/50 hover:bg-slate-700/20 transition">
                   <td className="py-1.5 text-xs text-slate-400">
                     {t.timestamp?.slice(0, 16).replace("T", " ")}
                   </td>
@@ -373,17 +469,6 @@ export default function PaperTradingPage() {
               ))}
             </tbody>
           </table>
-        </div>
-      )}
-
-      {/* Empty state */}
-      {(!trades || trades.length === 0) && (
-        <div className="card text-center text-slate-400">
-          <p className="text-lg font-medium">No trades yet</p>
-          <p className="mt-1 text-sm">
-            Place a manual order above, or click &quot;Auto-Execute Signals&quot; to trade
-            based on the AI&apos;s BUY/SELL recommendations.
-          </p>
         </div>
       )}
     </div>
