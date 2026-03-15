@@ -1,0 +1,577 @@
+"""
+Database Layer
+Supports both Supabase (production) and SQLite (local development).
+"""
+import os
+import json
+import sqlite3
+import logging
+from datetime import datetime
+from typing import Optional
+
+import pandas as pd
+
+from backend import config
+
+logger = logging.getLogger(__name__)
+
+# ─── SQLite Implementation ───────────────────────────────────────────────────
+
+def _get_sqlite_conn() -> sqlite3.Connection:
+    os.makedirs(os.path.dirname(config.SQLITE_PATH), exist_ok=True)
+    return sqlite3.connect(config.SQLITE_PATH)
+
+
+def init_sqlite():
+    """Create SQLite tables."""
+    conn = _get_sqlite_conn()
+    c = conn.cursor()
+    c.executescript("""
+        CREATE TABLE IF NOT EXISTS scanned_stocks (
+            symbol TEXT PRIMARY KEY,
+            name TEXT,
+            sector TEXT,
+            last_price REAL,
+            market_cap REAL,
+            avg_volume REAL,
+            daily_volatility REAL,
+            last_updated TEXT
+        );
+        CREATE TABLE IF NOT EXISTS stock_data (
+            symbol TEXT NOT NULL,
+            date TEXT NOT NULL,
+            open REAL, high REAL, low REAL, close REAL,
+            volume INTEGER,
+            PRIMARY KEY (symbol, date)
+        );
+        CREATE TABLE IF NOT EXISTS predictions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            symbol TEXT NOT NULL,
+            date TEXT NOT NULL,
+            signal TEXT,
+            confidence REAL,
+            ai_probability REAL,
+            momentum_score REAL,
+            breakout_score REAL,
+            volume_spike_score REAL,
+            opportunity_score REAL,
+            explanation TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS watchlist (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT NOT NULL,
+            category TEXT,
+            symbol TEXT NOT NULL,
+            signal TEXT,
+            confidence REAL,
+            opportunity_score REAL,
+            explanation TEXT,
+            rank INTEGER
+        );
+        CREATE TABLE IF NOT EXISTS scan_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            started_at TEXT,
+            finished_at TEXT,
+            stocks_scanned INTEGER,
+            stocks_passed_filter INTEGER,
+            status TEXT
+        );
+        CREATE TABLE IF NOT EXISTS strategy_performance (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            strategy TEXT NOT NULL,
+            symbol TEXT,
+            signal TEXT,
+            actual_return REAL,
+            won INTEGER,
+            date TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS meta_strategy_state (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            date TEXT NOT NULL,
+            regime TEXT,
+            weights TEXT,
+            explanation TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS training_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            version_id TEXT,
+            started_at TEXT,
+            finished_at TEXT,
+            status TEXT,
+            accuracy REAL,
+            auc REAL,
+            sharpe_ratio REAL,
+            max_drawdown REAL,
+            profit_factor REAL,
+            dataset_size INTEGER,
+            stocks_trained INTEGER,
+            duration_seconds REAL,
+            deployed INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_pred_symbol ON predictions(symbol);
+        CREATE INDEX IF NOT EXISTS idx_pred_date ON predictions(date);
+        CREATE INDEX IF NOT EXISTS idx_watchlist_date ON watchlist(date);
+        CREATE INDEX IF NOT EXISTS idx_strat_perf_strategy ON strategy_performance(strategy);
+        CREATE INDEX IF NOT EXISTS idx_meta_state_date ON meta_strategy_state(date);
+        CREATE INDEX IF NOT EXISTS idx_training_log_date ON training_log(started_at);
+
+        CREATE TABLE IF NOT EXISTS paper_portfolio (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            data TEXT NOT NULL,
+            updated_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS paper_trades (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            symbol TEXT NOT NULL,
+            side TEXT NOT NULL,
+            order_type TEXT,
+            quantity INTEGER,
+            price REAL,
+            value REAL,
+            costs_json TEXT,
+            pnl REAL,
+            pnl_pct REAL,
+            entry_price REAL,
+            status TEXT,
+            mode TEXT DEFAULT 'PAPER',
+            timestamp TEXT DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_paper_trades_symbol ON paper_trades(symbol);
+        CREATE INDEX IF NOT EXISTS idx_paper_trades_ts ON paper_trades(timestamp);
+    """)
+    conn.commit()
+    conn.close()
+    logger.info("SQLite database initialized at %s", config.SQLITE_PATH)
+
+
+# ─── Supabase Implementation ─────────────────────────────────────────────────
+
+def _get_supabase():
+    from supabase import create_client
+    return create_client(config.SUPABASE_URL, config.SUPABASE_KEY)
+
+
+# ─── Unified Interface ───────────────────────────────────────────────────────
+
+def init_db():
+    """Initialize the database (SQLite or Supabase tables)."""
+    if config.USE_SQLITE:
+        init_sqlite()
+    else:
+        logger.info("Using Supabase. Ensure tables are created via schema.sql")
+
+
+def upsert_scanned_stocks(stocks: list[dict]):
+    """Insert or update the scanned stocks list."""
+    if not stocks:
+        return
+    if config.USE_SQLITE:
+        conn = _get_sqlite_conn()
+        for s in stocks:
+            conn.execute("""
+                INSERT OR REPLACE INTO scanned_stocks
+                (symbol, name, sector, last_price, market_cap, avg_volume, daily_volatility, last_updated)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                s.get("symbol"), s.get("name", ""), s.get("sector", ""),
+                s.get("last_price", 0), s.get("market_cap", 0),
+                s.get("avg_volume", 0), s.get("daily_volatility", 0),
+                datetime.now().isoformat(),
+            ))
+        conn.commit()
+        conn.close()
+    else:
+        sb = _get_supabase()
+        for s in stocks:
+            s["last_updated"] = datetime.now().isoformat()
+        sb.table("scanned_stocks").upsert(stocks).execute()
+
+
+def save_stock_data(df: pd.DataFrame, symbol: str):
+    """Save OHLCV data for a symbol."""
+    if df.empty:
+        return
+    if config.USE_SQLITE:
+        conn = _get_sqlite_conn()
+        for _, row in df.iterrows():
+            conn.execute("""
+                INSERT OR REPLACE INTO stock_data (symbol, date, open, high, low, close, volume)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (
+                symbol,
+                row["date"].strftime("%Y-%m-%d") if hasattr(row["date"], "strftime") else str(row["date"]),
+                row["open"], row["high"], row["low"], row["close"], int(row["volume"]),
+            ))
+        conn.commit()
+        conn.close()
+    else:
+        sb = _get_supabase()
+        records = df.to_dict("records")
+        for r in records:
+            r["symbol"] = symbol
+            r["date"] = str(r["date"])
+        sb.table("stock_data").upsert(records).execute()
+
+
+def save_predictions(predictions: list[dict]):
+    """Save prediction results."""
+    if not predictions:
+        return
+    today = datetime.now().strftime("%Y-%m-%d")
+    if config.USE_SQLITE:
+        conn = _get_sqlite_conn()
+        # Clear today's predictions first
+        conn.execute("DELETE FROM predictions WHERE date = ?", (today,))
+        for p in predictions:
+            conn.execute("""
+                INSERT INTO predictions
+                (symbol, date, signal, confidence, ai_probability, momentum_score,
+                 breakout_score, volume_spike_score, opportunity_score, explanation)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                p["symbol"], today, p.get("signal", "HOLD"),
+                p.get("confidence", 0), p.get("ai_probability", 0.5),
+                p.get("momentum_score", 0), p.get("breakout_score", 0),
+                p.get("volume_spike_score", 0), p.get("opportunity_score", 0),
+                p.get("explanation", ""),
+            ))
+        conn.commit()
+        conn.close()
+    else:
+        sb = _get_supabase()
+        sb.table("predictions").delete().eq("date", today).execute()
+        for p in predictions:
+            p["date"] = today
+        sb.table("predictions").insert(predictions).execute()
+
+
+def save_watchlist(watchlist: list[dict]):
+    """Save today's watchlist."""
+    if not watchlist:
+        return
+    today = datetime.now().strftime("%Y-%m-%d")
+    if config.USE_SQLITE:
+        conn = _get_sqlite_conn()
+        conn.execute("DELETE FROM watchlist WHERE date = ?", (today,))
+        for w in watchlist:
+            conn.execute("""
+                INSERT INTO watchlist
+                (date, category, symbol, signal, confidence, opportunity_score, explanation, rank)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                today, w.get("category", ""), w["symbol"],
+                w.get("signal", "HOLD"), w.get("confidence", 0),
+                w.get("opportunity_score", 0), w.get("explanation", ""),
+                w.get("rank", 0),
+            ))
+        conn.commit()
+        conn.close()
+    else:
+        sb = _get_supabase()
+        sb.table("watchlist").delete().eq("date", today).execute()
+        for w in watchlist:
+            w["date"] = today
+        sb.table("watchlist").insert(watchlist).execute()
+
+
+def save_scan_log(started_at: str, finished_at: str, stocks_scanned: int,
+                  stocks_passed: int, status: str):
+    """Log a scan event."""
+    if config.USE_SQLITE:
+        conn = _get_sqlite_conn()
+        conn.execute("""
+            INSERT INTO scan_log (started_at, finished_at, stocks_scanned, stocks_passed_filter, status)
+            VALUES (?, ?, ?, ?, ?)
+        """, (started_at, finished_at, stocks_scanned, stocks_passed, status))
+        conn.commit()
+        conn.close()
+    else:
+        sb = _get_supabase()
+        sb.table("scan_log").insert({
+            "started_at": started_at, "finished_at": finished_at,
+            "stocks_scanned": stocks_scanned, "stocks_passed_filter": stocks_passed,
+            "status": status,
+        }).execute()
+
+
+def get_predictions(date: Optional[str] = None) -> list[dict]:
+    """Get predictions for a date (default: today)."""
+    if date is None:
+        date = datetime.now().strftime("%Y-%m-%d")
+    if config.USE_SQLITE:
+        conn = _get_sqlite_conn()
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT * FROM predictions WHERE date = ? ORDER BY opportunity_score DESC", (date,)
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    else:
+        sb = _get_supabase()
+        res = sb.table("predictions").select("*").eq("date", date).order("opportunity_score", desc=True).execute()
+        return res.data
+
+
+def get_watchlist(date: Optional[str] = None, category: Optional[str] = None) -> list[dict]:
+    """Get watchlist for a date."""
+    if date is None:
+        date = datetime.now().strftime("%Y-%m-%d")
+    if config.USE_SQLITE:
+        conn = _get_sqlite_conn()
+        conn.row_factory = sqlite3.Row
+        if category:
+            rows = conn.execute(
+                "SELECT * FROM watchlist WHERE date = ? AND category = ? ORDER BY rank",
+                (date, category)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM watchlist WHERE date = ? ORDER BY category, rank", (date,)
+            ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    else:
+        sb = _get_supabase()
+        q = sb.table("watchlist").select("*").eq("date", date)
+        if category:
+            q = q.eq("category", category)
+        return q.order("rank").execute().data
+
+
+def get_stock_data(symbol: str, limit: int = 365) -> pd.DataFrame:
+    """Get stored OHLCV data for a symbol."""
+    if config.USE_SQLITE:
+        conn = _get_sqlite_conn()
+        df = pd.read_sql_query(
+            "SELECT * FROM stock_data WHERE symbol = ? ORDER BY date DESC LIMIT ?",
+            conn, params=(symbol, limit)
+        )
+        conn.close()
+        if not df.empty:
+            df["date"] = pd.to_datetime(df["date"])
+            df = df.sort_values("date").reset_index(drop=True)
+        return df
+    else:
+        sb = _get_supabase()
+        res = sb.table("stock_data").select("*").eq("symbol", symbol).order("date", desc=True).limit(limit).execute()
+        df = pd.DataFrame(res.data)
+        if not df.empty:
+            df["date"] = pd.to_datetime(df["date"])
+            df = df.sort_values("date").reset_index(drop=True)
+        return df
+
+
+def get_scan_logs(limit: int = 10) -> list[dict]:
+    """Get recent scan logs."""
+    if config.USE_SQLITE:
+        conn = _get_sqlite_conn()
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT * FROM scan_log ORDER BY id DESC LIMIT ?", (limit,)
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    else:
+        sb = _get_supabase()
+        return sb.table("scan_log").select("*").order("id", desc=True).limit(limit).execute().data
+
+
+def get_all_scanned_stocks() -> list[dict]:
+    """Get the full scanned stocks list."""
+    if config.USE_SQLITE:
+        conn = _get_sqlite_conn()
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("SELECT * FROM scanned_stocks ORDER BY symbol").fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    else:
+        sb = _get_supabase()
+        return sb.table("scanned_stocks").select("*").order("symbol").execute().data
+
+
+def save_meta_strategy_state(regime: str, weights: dict, explanation: str):
+    """Save the current meta-strategy state."""
+    today = datetime.now().strftime("%Y-%m-%d")
+    weights_json = json.dumps(weights)
+    if config.USE_SQLITE:
+        conn = _get_sqlite_conn()
+        conn.execute("DELETE FROM meta_strategy_state WHERE date = ?", (today,))
+        conn.execute("""
+            INSERT INTO meta_strategy_state (date, regime, weights, explanation)
+            VALUES (?, ?, ?, ?)
+        """, (today, regime, weights_json, explanation))
+        conn.commit()
+        conn.close()
+    else:
+        sb = _get_supabase()
+        sb.table("meta_strategy_state").delete().eq("date", today).execute()
+        sb.table("meta_strategy_state").insert({
+            "date": today, "regime": regime,
+            "weights": weights_json, "explanation": explanation,
+        }).execute()
+
+
+def get_meta_strategy_state() -> Optional[dict]:
+    """Get the latest meta-strategy state."""
+    if config.USE_SQLITE:
+        conn = _get_sqlite_conn()
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT * FROM meta_strategy_state ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        conn.close()
+        if row:
+            d = dict(row)
+            d["weights"] = json.loads(d["weights"]) if d.get("weights") else {}
+            return d
+        return None
+    else:
+        sb = _get_supabase()
+        res = sb.table("meta_strategy_state").select("*").order("id", desc=True).limit(1).execute()
+        if res.data:
+            d = res.data[0]
+            d["weights"] = json.loads(d["weights"]) if d.get("weights") else {}
+            return d
+        return None
+
+
+def save_training_log(result: dict):
+    """Persist a training pipeline result."""
+    metrics = result.get("metrics", {})
+    if config.USE_SQLITE:
+        conn = _get_sqlite_conn()
+        conn.execute("""
+            INSERT INTO training_log
+            (version_id, started_at, finished_at, status,
+             accuracy, auc, sharpe_ratio, max_drawdown, profit_factor,
+             dataset_size, stocks_trained, duration_seconds, deployed)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            result.get("version_id", ""),
+            result.get("started_at", ""),
+            result.get("finished_at", ""),
+            result.get("status", ""),
+            metrics.get("accuracy", 0),
+            metrics.get("auc", 0),
+            metrics.get("sharpe_ratio", 0),
+            metrics.get("max_drawdown", 0),
+            metrics.get("profit_factor", 0),
+            result.get("dataset_size", 0),
+            result.get("stocks_trained", 0),
+            result.get("duration_seconds", 0),
+            1 if result.get("deployed") else 0,
+        ))
+        conn.commit()
+        conn.close()
+    else:
+        sb = _get_supabase()
+        sb.table("training_log").insert({
+            "version_id": result.get("version_id", ""),
+            "started_at": result.get("started_at", ""),
+            "finished_at": result.get("finished_at", ""),
+            "status": result.get("status", ""),
+            "accuracy": metrics.get("accuracy", 0),
+            "auc": metrics.get("auc", 0),
+            "sharpe_ratio": metrics.get("sharpe_ratio", 0),
+            "max_drawdown": metrics.get("max_drawdown", 0),
+            "profit_factor": metrics.get("profit_factor", 0),
+            "dataset_size": result.get("dataset_size", 0),
+            "stocks_trained": result.get("stocks_trained", 0),
+            "duration_seconds": result.get("duration_seconds", 0),
+            "deployed": 1 if result.get("deployed") else 0,
+        }).execute()
+
+
+def get_training_logs(limit: int = 20) -> list[dict]:
+    """Get recent training pipeline logs."""
+    if config.USE_SQLITE:
+        conn = _get_sqlite_conn()
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT * FROM training_log ORDER BY id DESC LIMIT ?", (limit,)
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    else:
+        sb = _get_supabase()
+        return sb.table("training_log").select("*").order("id", desc=True).limit(limit).execute().data
+
+
+# ─── Paper Trading ───────────────────────────────────────────────────────────
+
+def save_paper_portfolio(port: dict):
+    """Persist paper portfolio state (single row, id=1)."""
+    data_json = json.dumps(port)
+    if config.USE_SQLITE:
+        conn = _get_sqlite_conn()
+        conn.execute("""
+            INSERT OR REPLACE INTO paper_portfolio (id, data, updated_at)
+            VALUES (1, ?, datetime('now'))
+        """, (data_json,))
+        conn.commit()
+        conn.close()
+
+
+def get_paper_portfolio() -> Optional[dict]:
+    """Load paper portfolio state."""
+    if config.USE_SQLITE:
+        conn = _get_sqlite_conn()
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT data FROM paper_portfolio WHERE id = 1").fetchone()
+        conn.close()
+        if row:
+            return json.loads(row["data"])
+    return None
+
+
+def save_paper_trade(trade: dict):
+    """Record a single paper trade."""
+    if config.USE_SQLITE:
+        conn = _get_sqlite_conn()
+        conn.execute("""
+            INSERT INTO paper_trades
+            (symbol, side, order_type, quantity, price, value,
+             costs_json, pnl, pnl_pct, entry_price, status, mode, timestamp)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            trade.get("symbol"), trade.get("side"), trade.get("order_type"),
+            trade.get("quantity"), trade.get("price"), trade.get("value"),
+            json.dumps(trade.get("costs", {})),
+            trade.get("pnl"), trade.get("pnl_pct"),
+            trade.get("entry_price"), trade.get("status", "filled"),
+            trade.get("mode", "PAPER"),
+            trade.get("timestamp", datetime.now().isoformat()),
+        ))
+        conn.commit()
+        conn.close()
+
+
+def get_paper_trades(limit: int = 50) -> list[dict]:
+    """Get recent paper trades."""
+    if config.USE_SQLITE:
+        conn = _get_sqlite_conn()
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT * FROM paper_trades ORDER BY id DESC LIMIT ?", (limit,)
+        ).fetchall()
+        conn.close()
+        trades = []
+        for r in rows:
+            d = dict(r)
+            d["costs"] = json.loads(d.pop("costs_json", "{}") or "{}")
+            trades.append(d)
+        return trades
+    return []
+
+
+def clear_paper_trades():
+    """Delete all paper trades (used on portfolio reset)."""
+    if config.USE_SQLITE:
+        conn = _get_sqlite_conn()
+        conn.execute("DELETE FROM paper_trades")
+        conn.commit()
+        conn.close()
