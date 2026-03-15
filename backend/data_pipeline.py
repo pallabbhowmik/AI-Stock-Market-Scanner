@@ -4,6 +4,7 @@ Fetches historical OHLCV data for filtered stocks using yfinance.
 Supports multi-timeframe data (daily, hourly, 5-min).
 """
 import logging
+import time
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
@@ -16,20 +17,51 @@ from backend import config
 
 logger = logging.getLogger(__name__)
 
+_MAX_RETRIES = 3
+_RETRY_BACKOFF = 3   # seconds, doubles each attempt
+
+
+def _download_with_retry(symbol: str, **kwargs) -> pd.DataFrame:
+    """Download data for a single symbol with retry + exponential back-off."""
+    for attempt in range(1, _MAX_RETRIES + 1):
+        try:
+            data = yf.download(symbol, progress=False, **kwargs)
+            if data is not None and not data.empty:
+                return data
+        except Exception as e:
+            logger.debug("Attempt %d for %s failed: %s", attempt, symbol, e)
+        if attempt < _MAX_RETRIES:
+            time.sleep(_RETRY_BACKOFF * (2 ** (attempt - 1)))
+    return pd.DataFrame()
+
 
 def fetch_daily_data(symbol: str, period: str = "1y") -> pd.DataFrame:
     """Fetch daily OHLCV data for a single symbol."""
     try:
-        ticker = yf.Ticker(symbol)
-        df = ticker.history(period=period, interval="1d")
+        df = _download_with_retry(symbol, period=period, interval="1d")
         if df.empty:
             return pd.DataFrame()
 
         df = df.reset_index()
-        df = df.rename(columns={
-            "Date": "date", "Open": "open", "High": "high",
-            "Low": "low", "Close": "close", "Volume": "volume",
-        })
+        # Flatten MultiIndex columns if present
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
+        col_map = {}
+        for c in df.columns:
+            cl = str(c).lower()
+            if cl in ("date", "datetime"):
+                col_map[c] = "date"
+            elif cl == "open":
+                col_map[c] = "open"
+            elif cl == "high":
+                col_map[c] = "high"
+            elif cl == "low":
+                col_map[c] = "low"
+            elif cl == "close":
+                col_map[c] = "close"
+            elif cl == "volume":
+                col_map[c] = "volume"
+        df = df.rename(columns=col_map)
         df["symbol"] = symbol
         df["date"] = pd.to_datetime(df["date"]).dt.tz_localize(None)
         return df[["symbol", "date", "open", "high", "low", "close", "volume"]]
@@ -41,22 +73,29 @@ def fetch_daily_data(symbol: str, period: str = "1y") -> pd.DataFrame:
 def fetch_intraday_data(symbol: str, interval: str = "1h", period: str = "5d") -> pd.DataFrame:
     """Fetch intraday data for multi-timeframe analysis."""
     try:
-        ticker = yf.Ticker(symbol)
-        df = ticker.history(period=period, interval=interval)
+        df = _download_with_retry(symbol, period=period, interval=interval)
         if df.empty:
             return pd.DataFrame()
 
         df = df.reset_index()
-        rename_map = {"Datetime": "date", "Date": "date", "Open": "open",
-                       "High": "high", "Low": "low", "Close": "close", "Volume": "volume"}
-        df = df.rename(columns=rename_map)
-        if "date" not in df.columns:
-            df = df.reset_index()
-            for col in df.columns:
-                if "date" in col.lower() or "time" in col.lower():
-                    df = df.rename(columns={col: "date"})
-                    break
-
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
+        col_map = {}
+        for c in df.columns:
+            cl = str(c).lower()
+            if "date" in cl or "time" in cl:
+                col_map[c] = "date"
+            elif cl == "open":
+                col_map[c] = "open"
+            elif cl == "high":
+                col_map[c] = "high"
+            elif cl == "low":
+                col_map[c] = "low"
+            elif cl == "close":
+                col_map[c] = "close"
+            elif cl == "volume":
+                col_map[c] = "volume"
+        df = df.rename(columns=col_map)
         df["symbol"] = symbol
         df["date"] = pd.to_datetime(df["date"]).dt.tz_localize(None)
         return df[["symbol", "date", "open", "high", "low", "close", "volume"]]
@@ -80,12 +119,13 @@ def fetch_multi_timeframe(symbol: str) -> dict:
 
 
 def fetch_batch_daily(symbols: list[str], period: str = "1y",
-                      max_workers: int = 8) -> dict[str, pd.DataFrame]:
-    """Fetch daily data for a batch of symbols using threading."""
+                      max_workers: int = 5) -> dict[str, pd.DataFrame]:
+    """Fetch daily data for a batch of symbols using threading with rate-limit delay."""
     results = {}
 
     def _fetch(sym):
         df = fetch_daily_data(sym, period=period)
+        time.sleep(0.3)   # gentle throttle per request
         return sym, df
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:

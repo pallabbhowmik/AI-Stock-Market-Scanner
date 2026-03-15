@@ -15,17 +15,26 @@ NIFTY_SYMBOL = "^NSEI"  # Yahoo Finance symbol for NIFTY 50
 
 
 def _fetch_index_data(period: str = "1y") -> pd.DataFrame:
-    """Fetch NIFTY 50 index data."""
+    """Fetch NIFTY 50 index data with retry."""
+    import time
     try:
         import yfinance as yf
-        df = yf.download(NIFTY_SYMBOL, period=period, progress=False, auto_adjust=True)
-        if df.empty:
-            return pd.DataFrame()
-        df = df.reset_index()
-        df.columns = [c.lower() if isinstance(c, str) else c[0].lower() for c in df.columns]
-        if "date" not in df.columns and "datetime" in df.columns:
-            df = df.rename(columns={"datetime": "date"})
-        return df
+        for attempt in range(1, 4):
+            try:
+                df = yf.download(NIFTY_SYMBOL, period=period, progress=False, auto_adjust=True)
+                if df is not None and not df.empty:
+                    df = df.reset_index()
+                    df.columns = [c[0].lower() if isinstance(c, tuple) else str(c).lower()
+                                  for c in df.columns]
+                    if "date" not in df.columns and "datetime" in df.columns:
+                        df = df.rename(columns={"datetime": "date"})
+                    return df
+            except Exception as e:
+                logger.warning("NIFTY download attempt %d failed: %s", attempt, e)
+            if attempt < 3:
+                time.sleep(3 * attempt)
+        logger.warning("All NIFTY download attempts failed")
+        return pd.DataFrame()
     except Exception as e:
         logger.error("Failed to fetch NIFTY data: %s", e)
         return pd.DataFrame()

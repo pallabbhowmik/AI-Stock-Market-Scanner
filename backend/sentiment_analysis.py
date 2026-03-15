@@ -102,8 +102,16 @@ def get_stock_sentiment(symbol: str) -> dict:
     """
     try:
         import yfinance as yf
+        import time
         ticker = yf.Ticker(symbol)
-        news = ticker.news or []
+        for attempt in range(1, 3):
+            try:
+                news = ticker.news or []
+                break
+            except Exception:
+                if attempt < 2:
+                    time.sleep(2)
+                news = []
 
         headlines = []
         for item in news[:20]:

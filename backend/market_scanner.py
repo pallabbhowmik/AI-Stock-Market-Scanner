@@ -4,8 +4,8 @@ Downloads stock universe from NSE, applies smart filters, and selects quality st
 """
 import logging
 import io
+import time
 from typing import Optional
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pandas as pd
 import numpy as np
@@ -15,6 +15,12 @@ import requests
 from backend import config
 
 logger = logging.getLogger(__name__)
+
+# ── Batch download chunk size & throttle ────────────────────────────────
+_DOWNLOAD_CHUNK = 50          # symbols per yf.download() call
+_CHUNK_DELAY    = 2           # seconds between chunks (rate-limit guard)
+_MAX_RETRIES    = 3           # retries per chunk on failure
+_RETRY_BACKOFF  = 5           # base seconds for exponential back-off
 
 
 def download_nse_symbols() -> list[str]:
@@ -52,53 +58,98 @@ def download_nse_symbols() -> list[str]:
         return config.FALLBACK_SYMBOLS
 
 
-def get_stock_info_batch(symbols: list[str], max_workers: int = 10) -> list[dict]:
+def get_stock_info_batch(symbols: list[str], max_workers: int = 5) -> list[dict]:
     """
-    Fetch basic info (price, volume, market cap) for a batch of symbols.
-    Uses threading for speed.
+    Fetch basic info (price, volume, volatility) for a batch of symbols.
+    Uses yf.download() in chunks instead of individual Ticker calls to
+    minimise HTTP requests and avoid Yahoo rate-limiting / crumb errors.
     """
+    ticker_symbols = [f"{s}.NS" for s in symbols]
     results = []
 
-    def _fetch_one(symbol: str) -> Optional[dict]:
-        ticker_str = f"{symbol}.NS"
-        try:
-            ticker = yf.Ticker(ticker_str)
-            hist = ticker.history(period="3mo", interval="1d")
-            if hist.empty or len(hist) < 20:
-                return None
+    for chunk_start in range(0, len(ticker_symbols), _DOWNLOAD_CHUNK):
+        chunk = ticker_symbols[chunk_start : chunk_start + _DOWNLOAD_CHUNK]
 
-            last_price = hist["Close"].iloc[-1]
-            avg_volume = hist["Volume"].tail(20).mean()
-            daily_returns = hist["Close"].pct_change().dropna()
-            daily_vol = daily_returns.std()
+        hist_data = _download_chunk_with_retry(chunk, period="3mo", interval="1d")
+        if hist_data is None:
+            continue
 
-            info = ticker.info or {}
-            market_cap = info.get("marketCap", 0) or 0
-            name = info.get("shortName", symbol)
-            sector = info.get("sector", "Unknown")
+        for sym in chunk:
+            try:
+                # Extract per-symbol DataFrame from the batch result
+                if len(chunk) == 1:
+                    hist = hist_data
+                else:
+                    # yf.download with multiple tickers returns MultiIndex columns
+                    try:
+                        hist = hist_data.xs(sym, level="Ticker", axis=1)
+                    except (KeyError, TypeError):
+                        # Fallback for older column formats
+                        try:
+                            hist = hist_data[sym]
+                        except (KeyError, TypeError):
+                            continue
 
-            return {
-                "symbol": ticker_str,
-                "name": name,
-                "sector": sector,
-                "last_price": round(last_price, 2),
-                "market_cap": market_cap,
-                "avg_volume": round(avg_volume, 0),
-                "daily_volatility": round(daily_vol, 4),
-            }
-        except Exception as e:
-            logger.debug("Error fetching %s: %s", symbol, e)
-            return None
+                if hist.empty or len(hist) < 20:
+                    continue
 
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(_fetch_one, s): s for s in symbols}
-        for future in as_completed(futures):
-            result = future.result()
-            if result:
-                results.append(result)
+                # Normalise column names to title-case
+                hist.columns = [c.title() if isinstance(c, str) else str(c).title()
+                                for c in hist.columns]
+
+                close = hist.get("Close")
+                volume = hist.get("Volume")
+                if close is None or volume is None:
+                    continue
+
+                last_price = float(close.iloc[-1])
+                avg_volume = float(volume.tail(20).mean())
+                daily_returns = close.pct_change(fill_method=None).dropna()
+                daily_vol = float(daily_returns.std())
+
+                results.append({
+                    "symbol": sym,
+                    "name": sym.replace(".NS", ""),
+                    "sector": "Unknown",
+                    "last_price": round(last_price, 2),
+                    "market_cap": 0,
+                    "avg_volume": round(avg_volume, 0),
+                    "daily_volatility": round(daily_vol, 4),
+                })
+            except Exception as e:
+                logger.debug("Error processing %s: %s", sym, e)
+
+        # Throttle between chunks
+        if chunk_start + _DOWNLOAD_CHUNK < len(ticker_symbols):
+            time.sleep(_CHUNK_DELAY)
 
     logger.info("Fetched info for %d / %d symbols", len(results), len(symbols))
     return results
+
+
+def _download_chunk_with_retry(symbols: list[str], **kwargs) -> Optional[pd.DataFrame]:
+    """Download a chunk of symbols with retry + exponential back-off."""
+    for attempt in range(1, _MAX_RETRIES + 1):
+        try:
+            data = yf.download(
+                symbols,
+                progress=False,
+                threads=True,
+                **kwargs,
+            )
+            if data is not None and not data.empty:
+                return data
+        except Exception as e:
+            logger.warning("Download attempt %d/%d failed: %s", attempt, _MAX_RETRIES, e)
+
+        if attempt < _MAX_RETRIES:
+            wait = _RETRY_BACKOFF * (2 ** (attempt - 1))
+            logger.info("Retrying in %ds…", wait)
+            time.sleep(wait)
+
+    logger.warning("All %d download attempts failed for %d symbols",
+                    _MAX_RETRIES, len(symbols))
+    return None
 
 
 def apply_smart_filters(stocks: list[dict]) -> list[dict]:
