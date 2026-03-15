@@ -85,7 +85,8 @@ MARKET_CLOSE_MINUTE = 30
 # ─── API ──────────────────────────────────────────────────────────────────────
 API_HOST = "0.0.0.0"
 API_PORT = int(os.getenv("PORT", "8000"))
-CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",")
+_cors_raw = os.getenv("CORS_ORIGINS", "http://localhost:3000")
+CORS_ORIGINS = [o.strip() for o in _cors_raw.split(",") if o.strip()]
 
 # ─── Data ──────────────────────────────────────────────────────────────────────
 DATA_LOOKBACK_DAYS = 365
