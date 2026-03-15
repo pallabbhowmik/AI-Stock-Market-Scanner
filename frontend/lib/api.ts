@@ -272,6 +272,7 @@ export const api = {
     ),
   triggerFullScan: () => postAPI<{ status: string }>("/api/scan/full"),
   triggerQuickScan: () => postAPI<{ status: string }>("/api/scan/quick"),
+  getScanStatus: () => fetchAPI<{ running: boolean; error: string | null; result: Record<string, unknown> | null; started_at: string | null }>("/api/scan/status"),
   getScanLogs: () => fetchAPI<ScanLog[]>("/api/scan/logs"),
   startScheduler: () => postAPI<{ status: string }>("/api/scheduler/start"),
   stopScheduler: () => postAPI<{ status: string }>("/api/scheduler/stop"),

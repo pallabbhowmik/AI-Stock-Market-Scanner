@@ -105,8 +105,32 @@ def run_full_scan(max_symbols: int = 0, retrain: bool = False) -> dict:
             # Step 6: Breakout detection
             breakout = detect_all_breakouts(df)
 
+            # Step 7b: RL prediction
+            rl_pred = {"signal": "HOLD", "rl_score": 0.5, "confidence": 0}
+            try:
+                rl_pred = predict_with_rl(df)
+            except Exception as e:
+                logger.debug("RL prediction skipped for %s: %s", sym, e)
+
+            # Step 8: Sentiment analysis
+            sentiment_result = {"sentiment_score": 0.0, "signal": "NEUTRAL"}
+            try:
+                sentiment_result = get_stock_sentiment(sym)
+            except Exception as e:
+                logger.debug("Sentiment skipped for %s: %s", sym, e)
+
             # Step 11: Meta-AI strategy — combines ML, RL, momentum, mean-rev, volume, sentiment
-            meta_result = run_meta_strategy(sym, df, regime_info)
+            meta_result = run_meta_strategy(
+                symbol=sym,
+                df=df,
+                ml_prediction=pred,
+                rl_prediction=rl_pred,
+                momentum_score=momentum,
+                breakout_result=breakout,
+                volume_spike_score=vol_spike,
+                sentiment_result=sentiment_result,
+                regime=regime_info.get("regime", "SIDEWAYS"),
+            )
 
             # Step 12: Risk management
             risk_rec = {}
@@ -117,7 +141,7 @@ def run_full_scan(max_symbols: int = 0, retrain: bool = False) -> dict:
                 logger.debug("Risk calc skipped for %s: %s", sym, e)
 
             # Use meta-strategy score as the primary opportunity score
-            opp_score = meta_result.get("meta_score", 0.0)
+            opp_score = meta_result.get("final_score", 0.0)
 
             # Build combined explanation
             explanation_parts = []
@@ -134,20 +158,21 @@ def run_full_scan(max_symbols: int = 0, retrain: bool = False) -> dict:
                 explanation_parts.append(meta_result["explanation"])
             explanation = " | ".join(explanation_parts)
 
+            contributions = meta_result.get("strategy_contributions", {})
             all_predictions.append({
                 "symbol": sym,
-                "signal": meta_result.get("signal", pred["signal"]),
+                "signal": meta_result.get("final_signal", pred["signal"]),
                 "confidence": pred["confidence"],
                 "ai_probability": pred["ai_probability"],
                 "momentum_score": momentum,
                 "breakout_score": breakout["score"],
                 "volume_spike_score": vol_spike,
                 "opportunity_score": opp_score,
-                "meta_score": meta_result.get("meta_score", 0),
-                "meta_signal": meta_result.get("signal", "HOLD"),
+                "meta_score": meta_result.get("final_score", 0),
+                "meta_signal": meta_result.get("final_signal", "HOLD"),
                 "regime": regime_info.get("regime", "SIDEWAYS"),
-                "sentiment_score": meta_result.get("strategy_scores", {}).get("sentiment", 0),
-                "rl_score": meta_result.get("strategy_scores", {}).get("rl_agent", 0),
+                "sentiment_score": contributions.get("sentiment", {}).get("score", 0),
+                "rl_score": contributions.get("rl_agent", {}).get("score", 0),
                 "explanation": explanation,
                 "last_price": df["close"].iloc[-1] if not df.empty else 0,
                 "risk": risk_rec,
@@ -161,7 +186,7 @@ def run_full_scan(max_symbols: int = 0, retrain: bool = False) -> dict:
 
     # ── Step 13b: Save meta-strategy state ──
     try:
-        status = get_strategy_status(regime_info)
+        status = get_strategy_status(regime_info.get("regime", "SIDEWAYS"))
         database.save_meta_strategy_state(
             regime=regime_info.get("regime", "SIDEWAYS"),
             weights=status.get("weights", {}),

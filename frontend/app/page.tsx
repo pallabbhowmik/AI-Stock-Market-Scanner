@@ -371,13 +371,29 @@ export default function DashboardPage() {
     setScanMsg("Full scan started... this takes a few minutes.");
     try {
       await api.triggerFullScan();
-      setScanMsg("Scan complete! Refreshing...");
-      await load();
-      setScanMsg("");
+      // Poll for scan completion
+      const poll = setInterval(async () => {
+        try {
+          const status = await api.getScanStatus();
+          if (!status.running) {
+            clearInterval(poll);
+            if (status.error) {
+              setScanMsg(`Scan failed: ${status.error}`);
+            } else {
+              setScanMsg("Scan complete! Refreshing...");
+              await load();
+              setScanMsg("");
+            }
+            setScanning(false);
+          }
+        } catch {
+          // keep polling
+        }
+      }, 3000);
     } catch {
-      setScanMsg("Scan failed. Check backend logs.");
+      setScanMsg("Failed to start scan. Check backend.");
+      setScanning(false);
     }
-    setScanning(false);
   };
 
   const handleQuickScan = async () => {
@@ -385,13 +401,29 @@ export default function DashboardPage() {
     setScanMsg("Quick scan started...");
     try {
       await api.triggerQuickScan();
-      setScanMsg("Quick scan complete! Refreshing...");
-      await load();
-      setScanMsg("");
+      // Poll for scan completion
+      const poll = setInterval(async () => {
+        try {
+          const status = await api.getScanStatus();
+          if (!status.running) {
+            clearInterval(poll);
+            if (status.error) {
+              setScanMsg(`Quick scan failed: ${status.error}`);
+            } else {
+              setScanMsg("Quick scan complete! Refreshing...");
+              await load();
+              setScanMsg("");
+            }
+            setScanning(false);
+          }
+        } catch {
+          // keep polling
+        }
+      }, 3000);
     } catch {
-      setScanMsg("Quick scan failed.");
+      setScanMsg("Failed to start quick scan.");
+      setScanning(false);
     }
-    setScanning(false);
   };
 
   const toggleScheduler = async () => {

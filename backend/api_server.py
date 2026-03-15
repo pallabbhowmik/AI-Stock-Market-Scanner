@@ -35,6 +35,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Track background scan status
+_scan_status = {"running": False, "error": None, "result": None, "started_at": None}
+
 app = FastAPI(
     title="AI Stock Market Scanner",
     description="AI-powered stock scanning and prediction platform for the Indian market",
@@ -240,11 +243,23 @@ async def stock_indicators(symbol: str):
 async def trigger_full_scan(max_symbols: int = Query(default=0)):
     """Trigger a full market scan (runs in background)."""
     import threading
+    if _scan_status["running"]:
+        return {"status": "already_running", "message": "A scan is already in progress"}
+
+    _scan_status["running"] = True
+    _scan_status["error"] = None
+    _scan_status["result"] = None
+    _scan_status["started_at"] = datetime.now().isoformat()
+
     def _run():
         try:
-            run_full_scan(max_symbols=max_symbols, retrain=True)
+            result = run_full_scan(max_symbols=max_symbols, retrain=True)
+            _scan_status["result"] = result
         except Exception as e:
-            logger.error("Full scan error: %s", e)
+            logger.error("Full scan error: %s", e, exc_info=True)
+            _scan_status["error"] = str(e)
+        finally:
+            _scan_status["running"] = False
 
     thread = threading.Thread(target=_run, daemon=True)
     thread.start()
@@ -255,15 +270,33 @@ async def trigger_full_scan(max_symbols: int = Query(default=0)):
 async def trigger_quick_scan():
     """Trigger a quick scan on filtered stocks."""
     import threading
+    if _scan_status["running"]:
+        return {"status": "already_running", "message": "A scan is already in progress"}
+
+    _scan_status["running"] = True
+    _scan_status["error"] = None
+    _scan_status["result"] = None
+    _scan_status["started_at"] = datetime.now().isoformat()
+
     def _run():
         try:
-            run_quick_scan()
+            result = run_quick_scan()
+            _scan_status["result"] = result
         except Exception as e:
-            logger.error("Quick scan error: %s", e)
+            logger.error("Quick scan error: %s", e, exc_info=True)
+            _scan_status["error"] = str(e)
+        finally:
+            _scan_status["running"] = False
 
     thread = threading.Thread(target=_run, daemon=True)
     thread.start()
     return {"status": "scan_started", "message": "Quick scan started in background"}
+
+
+@app.get("/api/scan/status")
+async def scan_status():
+    """Get current scan status."""
+    return _scan_status
 
 
 @app.get("/api/scan/logs")
