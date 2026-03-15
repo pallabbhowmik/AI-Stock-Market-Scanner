@@ -304,7 +304,8 @@ async def meta_strategy_status():
     except Exception:
         regime_info = {"regime": "SIDEWAYS", "confidence": 0.5}
 
-    status = get_strategy_status(regime_info)
+    status = get_strategy_status(regime_info.get("regime", "SIDEWAYS"))
+    status["regime_confidence"] = regime_info.get("confidence", 0.5)
 
     # Also try to load persisted state from DB
     saved = database.get_meta_strategy_state()
