@@ -272,7 +272,17 @@ export const api = {
     ),
   triggerFullScan: () => postAPI<{ status: string }>("/api/scan/full"),
   triggerQuickScan: () => postAPI<{ status: string }>("/api/scan/quick"),
-  getScanStatus: () => fetchAPI<{ running: boolean; error: string | null; result: Record<string, unknown> | null; started_at: string | null }>("/api/scan/status"),
+  getScanStatus: () => fetchAPI<{
+    running: boolean;
+    error: string | null;
+    result: Record<string, unknown> | null;
+    started_at: string | null;
+    current_step: string;
+    progress: number;
+    total_steps: number;
+    stocks_processed: number;
+    stocks_total: number;
+  }>("/api/scan/status"),
   getScanLogs: () => fetchAPI<ScanLog[]>("/api/scan/logs"),
   startScheduler: () => postAPI<{ status: string }>("/api/scheduler/start"),
   stopScheduler: () => postAPI<{ status: string }>("/api/scheduler/stop"),

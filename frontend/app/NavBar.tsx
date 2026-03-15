@@ -11,7 +11,9 @@ import {
   HelpCircle,
   Menu,
   X,
+  LogOut,
 } from "lucide-react";
+import { useAuth } from "./AuthProvider";
 
 const NAV_LINKS = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -24,6 +26,7 @@ const NAV_LINKS = [
 export function NavBar() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const { logout } = useAuth();
 
   return (
     <nav className="sticky top-0 z-40 border-b border-slate-700/80 bg-slate-900/95 backdrop-blur-md">
@@ -57,6 +60,13 @@ export function NavBar() {
               </Link>
             );
           })}
+          <button
+            onClick={logout}
+            className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-slate-400 transition-all hover:bg-red-900/20 hover:text-red-400"
+            title="Sign out"
+          >
+            <LogOut size={16} />
+          </button>
         </div>
 
         {/* Mobile hamburger */}
@@ -91,6 +101,13 @@ export function NavBar() {
               </Link>
             );
           })}
+          <button
+            onClick={() => { setOpen(false); logout(); }}
+            className="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium text-slate-400 transition hover:bg-red-900/20 hover:text-red-400"
+          >
+            <LogOut size={18} />
+            Sign Out
+          </button>
         </div>
       )}
     </nav>

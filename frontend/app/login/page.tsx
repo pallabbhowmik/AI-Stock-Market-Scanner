@@ -1,32 +1,46 @@
 "use client";
 
 import { useState } from "react";
+import { useAuth } from "../AuthProvider";
+import { useRouter } from "next/navigation";
+import { Lock } from "lucide-react";
 
 export default function LoginPage() {
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const { login, isLoggedIn } = useAuth();
+  const router = useRouter();
+
+  // Already logged in — redirect
+  if (isLoggedIn) {
+    router.replace("/");
+    return null;
+  }
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    // For personal use — simple local validation
-    // Replace with Supabase auth when ready:
-    //   import { supabase } from "@/lib/supabase";
-    //   const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (email && password) {
-      window.location.href = "/";
+    if (!username || !password) {
+      setError("Please enter username and password");
+      return;
+    }
+    const ok = login(username, password);
+    if (ok) {
+      router.replace("/");
     } else {
-      setError("Please enter email and password");
+      setError("Invalid username or password");
     }
   };
 
   return (
     <div className="flex min-h-[80vh] items-center justify-center">
-      <div className="card w-full max-w-sm space-y-6">
+      <div className="card w-full max-w-sm space-y-6 animate-in">
         <div className="text-center">
-          <div className="text-4xl mb-3">📈</div>
+          <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-purple-600 text-2xl">
+            📈
+          </div>
           <h1 className="text-xl font-bold text-white">AI Stock Scanner</h1>
-          <p className="text-sm text-slate-400">Sign in to your account</p>
+          <p className="text-sm text-slate-400">Sign in to continue</p>
         </div>
 
         <form onSubmit={handleLogin} className="space-y-4">
@@ -36,13 +50,14 @@ export default function LoginPage() {
             </div>
           )}
           <div>
-            <label className="mb-1 block text-xs text-slate-400">Email</label>
+            <label className="mb-1 block text-xs text-slate-400">Username</label>
             <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              type="text"
+              value={username}
+              onChange={(e) => { setUsername(e.target.value); setError(""); }}
               className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2.5 text-sm text-white placeholder-slate-500 outline-none focus:border-accent"
-              placeholder="you@example.com"
+              placeholder="admin"
+              autoComplete="username"
             />
           </div>
           <div>
@@ -50,15 +65,17 @@ export default function LoginPage() {
             <input
               type="password"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(e) => { setPassword(e.target.value); setError(""); }}
               className="w-full rounded-lg border border-slate-600 bg-slate-700 px-4 py-2.5 text-sm text-white placeholder-slate-500 outline-none focus:border-accent"
               placeholder="••••••••"
+              autoComplete="current-password"
             />
           </div>
           <button
             type="submit"
-            className="w-full rounded-lg bg-accent py-2.5 text-sm font-medium text-white transition hover:bg-blue-600"
+            className="flex w-full items-center justify-center gap-2 rounded-lg bg-accent py-2.5 text-sm font-medium text-white transition hover:bg-blue-600"
           >
+            <Lock size={14} />
             Sign In
           </button>
         </form>

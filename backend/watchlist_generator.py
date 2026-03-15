@@ -24,7 +24,20 @@ from backend.meta_strategy import (
 logger = logging.getLogger(__name__)
 
 
-def run_full_scan(max_symbols: int = 0, retrain: bool = False) -> dict:
+def _update_progress(progress, step: str, pct: int, total_steps: int = 13,
+                      stocks_processed: int = 0, stocks_total: int = 0):
+    """Update the shared progress dict (if provided)."""
+    if progress is None:
+        return
+    progress["current_step"] = step
+    progress["progress"] = pct
+    progress["total_steps"] = total_steps
+    progress["stocks_processed"] = stocks_processed
+    progress["stocks_total"] = stocks_total
+
+
+def run_full_scan(max_symbols: int = 0, retrain: bool = False,
+                  progress: dict = None) -> dict:
     """
     Run the complete 13-module scanning pipeline:
     1-2. Scan market & filter  →  3. Fetch data  →  4. Technical indicators
@@ -39,6 +52,7 @@ def run_full_scan(max_symbols: int = 0, retrain: bool = False) -> dict:
     logger.info("═" * 60)
 
     # ── Step 1-2: Scan and filter ──
+    _update_progress(progress, "Scanning market & applying filters…", 5)
     logger.info("Step 1-2: Scanning market and applying filters...")
     all_stocks, filtered_stocks = scan_market(max_symbols=max_symbols)
     database.upsert_scanned_stocks(all_stocks)
@@ -51,17 +65,22 @@ def run_full_scan(max_symbols: int = 0, retrain: bool = False) -> dict:
         return {"status": "no_stocks", "rankings": {}}
 
     # ── Step 3: Fetch data ──
+    _update_progress(progress, "Downloading price history…", 15, stocks_total=len(symbols))
     logger.info("Step 3: Fetching historical data for %d stocks...", len(symbols))
     stock_data = {}
-    for sym in symbols:
+    for i, sym in enumerate(symbols):
         df = fetch_daily_data(sym, period="1y")
         if not df.empty:
             df = clean_data(df)
             database.save_stock_data(df, sym)
             stock_data[sym] = df
+        _update_progress(progress, "Downloading price history…",
+                         15 + int(15 * (i + 1) / len(symbols)),
+                         stocks_processed=i + 1, stocks_total=len(symbols))
     logger.info("Got data for %d stocks", len(stock_data))
 
     # ── Step 4: Technical indicators ──
+    _update_progress(progress, "Computing technical indicators…", 32)
     logger.info("Step 4: Computing technical indicators...")
     featured_data = {}
     for sym, df in stock_data.items():
@@ -71,10 +90,12 @@ def run_full_scan(max_symbols: int = 0, retrain: bool = False) -> dict:
 
     # ── Step 5a: Train ML models if needed ──
     if retrain or not _models_exist():
+        _update_progress(progress, "Training ML models…", 38)
         logger.info("Step 5a: Training ML models...")
         train_models(featured_data)
 
     # ── Step 7: Train RL agent ──
+    _update_progress(progress, "Training RL agent…", 45)
     logger.info("Step 7: Training RL agent...")
     try:
         train_rl_agent(featured_data)
@@ -82,6 +103,7 @@ def run_full_scan(max_symbols: int = 0, retrain: bool = False) -> dict:
         logger.warning("RL training skipped: %s", e)
 
     # ── Step 10: Market regime detection ──
+    _update_progress(progress, "Detecting market regime…", 50)
     logger.info("Step 10: Detecting market regime...")
     regime_info = {"regime": "SIDEWAYS", "confidence": 0.5}
     try:
@@ -90,10 +112,13 @@ def run_full_scan(max_symbols: int = 0, retrain: bool = False) -> dict:
         logger.warning("Regime detection failed, defaulting to SIDEWAYS: %s", e)
 
     # ── Steps 5b-9,11-12: Per-stock analysis ──
+    _update_progress(progress, "Analyzing stocks…", 55,
+                     stocks_processed=0, stocks_total=len(featured_data))
     logger.info("Steps 5-12: Running per-stock 13-module pipeline...")
     all_predictions = []
+    _total_stocks = len(featured_data)
 
-    for sym, df in featured_data.items():
+    for _idx, (sym, df) in enumerate(featured_data.items()):
         try:
             # Step 5b: ML prediction
             pred = predict_stock(df)
@@ -179,8 +204,12 @@ def run_full_scan(max_symbols: int = 0, retrain: bool = False) -> dict:
             })
         except Exception as e:
             logger.warning("Pipeline failed for %s: %s", sym, e)
+        _update_progress(progress, f"Analyzing stocks… ({_idx+1}/{_total_stocks})",
+                         55 + int(30 * (_idx + 1) / _total_stocks),
+                         stocks_processed=_idx + 1, stocks_total=_total_stocks)
 
     # ── Step 13a: Save predictions ──
+    _update_progress(progress, "Saving predictions…", 88)
     logger.info("Step 13a: Saving predictions...")
     database.save_predictions(all_predictions)
 
@@ -196,6 +225,7 @@ def run_full_scan(max_symbols: int = 0, retrain: bool = False) -> dict:
         logger.warning("Failed to save meta-strategy state: %s", e)
 
     # ── Step 13c: Rank and create watchlist ──
+    _update_progress(progress, "Ranking & generating watchlist…", 92)
     logger.info("Step 13c: Ranking stocks...")
     rankings = rank_stocks(all_predictions)
 
@@ -222,6 +252,7 @@ def run_full_scan(max_symbols: int = 0, retrain: bool = False) -> dict:
         status="success",
     )
 
+    _update_progress(progress, "Complete", 100)
     logger.info("═" * 60)
     logger.info("  SCAN COMPLETE - %d predictions  |  regime: %s",
                 len(all_predictions), regime_info.get("regime"))
@@ -246,11 +277,12 @@ def _models_exist() -> bool:
     return os.path.exists(scaler_path)
 
 
-def run_quick_scan(symbols: list[str] = None) -> dict:
+def run_quick_scan(symbols: list[str] = None, progress: dict = None) -> dict:
     """
     Run a quick scan on specific symbols (no market download / filtering).
     Useful for updating predictions during the day.
     """
+    _update_progress(progress, "Loading stocks…", 5)
     if symbols is None:
         # Use previously filtered stocks from DB
         stocks = database.get_all_scanned_stocks()
@@ -259,18 +291,26 @@ def run_quick_scan(symbols: list[str] = None) -> dict:
     if not symbols:
         return {"status": "no_symbols"}
 
+    _update_progress(progress, "Downloading price data…", 10, stocks_total=len(symbols))
     stock_data = {}
-    for sym in symbols:
+    for i, sym in enumerate(symbols):
         df = fetch_daily_data(sym, period="3mo")
         if not df.empty:
             df = clean_data(df)
             stock_data[sym] = df
+        _update_progress(progress, "Downloading price data…",
+                         10 + int(30 * (i + 1) / len(symbols)),
+                         stocks_processed=i + 1, stocks_total=len(symbols))
 
+    _update_progress(progress, "Computing indicators…", 42)
     featured_data = {sym: compute_features(df) for sym, df in stock_data.items()}
     featured_data = {sym: df for sym, df in featured_data.items() if not df.empty}
 
+    _update_progress(progress, "Generating predictions…", 50,
+                     stocks_total=len(featured_data))
     all_predictions = []
-    for sym, df in featured_data.items():
+    _total = len(featured_data)
+    for _idx, (sym, df) in enumerate(featured_data.items()):
         pred = predict_stock(df)
         momentum = compute_momentum_score(df)
         vol_spike = compute_volume_spike_score(df)
@@ -296,7 +336,11 @@ def run_quick_scan(symbols: list[str] = None) -> dict:
             "explanation": explanation,
             "last_price": df["close"].iloc[-1] if not df.empty else 0,
         })
+        _update_progress(progress, f"Analyzing stocks… ({_idx+1}/{_total})",
+                         50 + int(35 * (_idx + 1) / _total),
+                         stocks_processed=_idx + 1, stocks_total=_total)
 
+    _update_progress(progress, "Saving & ranking…", 90)
     database.save_predictions(all_predictions)
     rankings = rank_stocks(all_predictions)
 
@@ -314,6 +358,7 @@ def run_quick_scan(symbols: list[str] = None) -> dict:
             })
     database.save_watchlist(watchlist_items)
 
+    _update_progress(progress, "Complete", 100)
     return {
         "status": "success",
         "predictions": len(all_predictions),

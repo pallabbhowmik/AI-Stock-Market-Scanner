@@ -36,7 +36,17 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Track background scan status
-_scan_status = {"running": False, "error": None, "result": None, "started_at": None}
+_scan_status = {
+    "running": False,
+    "error": None,
+    "result": None,
+    "started_at": None,
+    "current_step": "",
+    "progress": 0,
+    "total_steps": 0,
+    "stocks_processed": 0,
+    "stocks_total": 0,
+}
 
 app = FastAPI(
     title="AI Stock Market Scanner",
@@ -250,10 +260,16 @@ async def trigger_full_scan(max_symbols: int = Query(default=0)):
     _scan_status["error"] = None
     _scan_status["result"] = None
     _scan_status["started_at"] = datetime.now().isoformat()
+    _scan_status["current_step"] = "Starting…"
+    _scan_status["progress"] = 0
+    _scan_status["total_steps"] = 0
+    _scan_status["stocks_processed"] = 0
+    _scan_status["stocks_total"] = 0
 
     def _run():
         try:
-            result = run_full_scan(max_symbols=max_symbols, retrain=True)
+            result = run_full_scan(max_symbols=max_symbols, retrain=True,
+                                   progress=_scan_status)
             _scan_status["result"] = result
         except Exception as e:
             logger.error("Full scan error: %s", e, exc_info=True)
@@ -277,10 +293,15 @@ async def trigger_quick_scan():
     _scan_status["error"] = None
     _scan_status["result"] = None
     _scan_status["started_at"] = datetime.now().isoformat()
+    _scan_status["current_step"] = "Starting…"
+    _scan_status["progress"] = 0
+    _scan_status["total_steps"] = 0
+    _scan_status["stocks_processed"] = 0
+    _scan_status["stocks_total"] = 0
 
     def _run():
         try:
-            result = run_quick_scan()
+            result = run_quick_scan(progress=_scan_status)
             _scan_status["result"] = result
         except Exception as e:
             logger.error("Quick scan error: %s", e, exc_info=True)

@@ -468,19 +468,47 @@ function GettingStartedBanner({ onFullScan, scanning }: { onFullScan: () => void
 }
 
 // ─── Scan Progress Banner ───────────────────────────────────────────────────
-function ScanProgressBanner({ message, isError }: { message: string; isError?: boolean }) {
+function ScanProgressBanner({ message, isError, progress, currentStep, stocksProcessed, stocksTotal }: {
+  message: string;
+  isError?: boolean;
+  progress?: number;
+  currentStep?: string;
+  stocksProcessed?: number;
+  stocksTotal?: number;
+}) {
   if (!message) return null;
-  const isRunning = message.toLowerCase().includes("started") || message.toLowerCase().includes("scanning");
+  const isRunning = !isError && (progress !== undefined && progress < 100);
+  const pct = progress ?? 0;
   return (
-    <div className={`animate-in flex items-center gap-3 rounded-lg border px-4 py-3 text-sm ${
+    <div className={`animate-in rounded-lg border px-4 py-3 text-sm ${
       isError
         ? "border-red-800 bg-red-900/30 text-red-300"
         : isRunning
         ? "border-blue-800 bg-blue-900/30 text-blue-300"
         : "border-green-800 bg-green-900/30 text-green-300"
     }`}>
-      {isRunning && <Loader2 size={16} className="animate-spin" />}
-      {message}
+      <div className="flex items-center gap-3">
+        {isRunning && <Loader2 size={16} className="shrink-0 animate-spin" />}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between gap-2">
+            <span className="truncate font-medium">{currentStep || message}</span>
+            {isRunning && <span className="shrink-0 tabular-nums font-semibold">{pct}%</span>}
+          </div>
+          {isRunning && (
+            <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-700/60">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-blue-500 to-purple-500 transition-all duration-500 ease-out"
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+          )}
+          {isRunning && stocksTotal !== undefined && stocksTotal > 0 && (
+            <p className="mt-1 text-xs text-slate-400">
+              {stocksProcessed ?? 0} / {stocksTotal} stocks processed
+            </p>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -528,6 +556,10 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
   const [scanMsg, setScanMsg] = useState("");
+  const [scanProgress, setScanProgress] = useState(0);
+  const [scanStep, setScanStep] = useState("");
+  const [scanStocksProcessed, setScanStocksProcessed] = useState(0);
+  const [scanStocksTotal, setScanStocksTotal] = useState(0);
   const [schedulerOn, setSchedulerOn] = useState(false);
 
   const load = async () => {
@@ -559,19 +591,29 @@ export default function DashboardPage() {
     const poll = setInterval(async () => {
       try {
         const status = await api.getScanStatus();
+        setScanProgress(status.progress ?? 0);
+        setScanStep(status.current_step ?? "");
+        setScanStocksProcessed(status.stocks_processed ?? 0);
+        setScanStocksTotal(status.stocks_total ?? 0);
         if (!status.running) {
           clearInterval(poll);
           if (status.error) {
             setScanMsg(`${label} failed: ${status.error}`);
+            setScanProgress(0);
+            setScanStep("");
           } else {
             setScanMsg(`${label} complete! Refreshing...`);
+            setScanProgress(100);
+            setScanStep("Complete");
             await load();
-            setTimeout(() => setScanMsg(""), 3000);
+            setTimeout(() => { setScanMsg(""); setScanProgress(0); setScanStep(""); }, 3000);
           }
           setScanning(false);
+        } else {
+          setScanMsg(status.current_step || `${label} in progress…`);
         }
       } catch { /* keep polling */ }
-    }, 3000);
+    }, 2000);
   };
 
   const handleFullScan = async () => {
@@ -709,7 +751,14 @@ export default function DashboardPage() {
       </div>
 
       {/* Scan progress */}
-      <ScanProgressBanner message={scanMsg} isError={scanMsg.includes("failed") || scanMsg.includes("Error")} />
+      <ScanProgressBanner
+        message={scanMsg}
+        isError={scanMsg.includes("failed") || scanMsg.includes("Error")}
+        progress={scanProgress}
+        currentStep={scanStep}
+        stocksProcessed={scanStocksProcessed}
+        stocksTotal={scanStocksTotal}
+      />
 
       {/* Getting started banner when no data */}
       {!hasData && !scanning && <GettingStartedBanner onFullScan={handleFullScan} scanning={scanning} />}
