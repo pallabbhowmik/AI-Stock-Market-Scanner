@@ -352,7 +352,7 @@ export default function DashboardPage() {
       setOverview(ov);
       setBuys(buyList.slice(0, 20));
       setSells(sellList.slice(0, 10));
-      setSchedulerOn(ov.scheduler_running);
+      setSchedulerOn(ov.scheduler?.running ?? false);
 
       // Load meta-strategy and training status (non-blocking)
       api.getMetaStrategy().then(setMeta).catch(() => {});
@@ -464,7 +464,7 @@ export default function DashboardPage() {
           <p className="text-sm text-slate-400">
             AI-powered scanning of 2000+ NSE stocks
             {overview?.last_scan && (
-              <> &middot; Last scan: {new Date(overview.last_scan).toLocaleString("en-IN")}</>
+              <> &middot; Last scan: {new Date(String(overview.last_scan.finished_at || overview.last_scan.started_at)).toLocaleString("en-IN")}</>
             )}
           </p>
         </div>
@@ -506,8 +506,8 @@ export default function DashboardPage() {
       {/* Stats Grid */}
       {overview && (
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-          <StatCard label="Stocks Scanned" value={overview.total_scanned} />
-          <StatCard label="Passed Filters" value={overview.passed_filter} />
+          <StatCard label="Stocks Scanned" value={overview.total_stocks} />
+          <StatCard label="Analyzed Today" value={overview.analyzed_today} />
           <StatCard label="Buy Signals" value={overview.buy_signals} color="text-green-400" />
           <StatCard label="Sell Signals" value={overview.sell_signals} color="text-red-400" />
           <StatCard label="Hold Signals" value={overview.hold_signals} color="text-yellow-400" />

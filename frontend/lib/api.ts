@@ -23,13 +23,14 @@ async function postAPI<T>(endpoint: string, body?: unknown): Promise<T> {
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 export interface Overview {
-  total_scanned: number;
-  passed_filter: number;
+  total_stocks: number;
+  analyzed_today: number;
   buy_signals: number;
   sell_signals: number;
   hold_signals: number;
-  last_scan: string | null;
-  scheduler_running: boolean;
+  avg_confidence: number;
+  last_scan: Record<string, unknown> | null;
+  scheduler: { running: boolean; last_run: string | null; next_run: string | null; market_open: boolean };
 }
 
 export interface Prediction {
@@ -250,13 +251,15 @@ export interface PaperPerformance {
 export const api = {
   getOverview: () => fetchAPI<Overview>("/api/overview"),
   getPredictions: (signal?: string) =>
-    fetchAPI<Prediction[]>(
+    fetchAPI<{ predictions: Prediction[]; total: number }>(
       `/api/predictions${signal ? `?signal=${signal}` : ""}`
-    ),
-  getWatchlist: () => fetchAPI<WatchlistItem[]>("/api/watchlist"),
+    ).then((r) => r.predictions),
+  getWatchlist: () =>
+    fetchAPI<{ watchlist: WatchlistItem[] }>("/api/watchlist").then((r) => r.watchlist),
   getWatchlistByCategory: () =>
-    fetchAPI<Record<string, WatchlistItem[]>>("/api/watchlist/categories"),
-  getStocks: () => fetchAPI<StockDetail[]>("/api/stocks"),
+    fetchAPI<{ categories: Array<{ id: string; name: string; color: string }> }>("/api/watchlist/categories").then((r) => r.categories as any),
+  getStocks: () =>
+    fetchAPI<{ stocks: StockDetail[]; total: number }>("/api/stocks").then((r) => r.stocks),
   getStock: (symbol: string) =>
     fetchAPI<StockDetail>(`/api/stocks/${encodeURIComponent(symbol)}`),
   getChart: (symbol: string, days?: number) =>
