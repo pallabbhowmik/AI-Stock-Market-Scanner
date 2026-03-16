@@ -299,7 +299,7 @@ def save_scan_log(started_at: str, finished_at: str, stocks_scanned: int,
 
 
 def get_predictions(date: Optional[str] = None) -> list[dict]:
-    """Get predictions for a date (default: today)."""
+    """Get predictions for a date (default: today, falls back to most recent)."""
     if date is None:
         date = datetime.now().strftime("%Y-%m-%d")
     if config.USE_SQLITE:
@@ -308,16 +308,32 @@ def get_predictions(date: Optional[str] = None) -> list[dict]:
         rows = conn.execute(
             "SELECT * FROM predictions WHERE date = ? ORDER BY opportunity_score DESC", (date,)
         ).fetchall()
+        if not rows:
+            # Fallback: get most recent date with predictions
+            row = conn.execute(
+                "SELECT date FROM predictions ORDER BY date DESC LIMIT 1"
+            ).fetchone()
+            if row:
+                rows = conn.execute(
+                    "SELECT * FROM predictions WHERE date = ? ORDER BY opportunity_score DESC",
+                    (row["date"],)
+                ).fetchall()
         conn.close()
         return [dict(r) for r in rows]
     else:
         sb = _get_supabase()
         res = sb.table("predictions").select("*").eq("date", date).order("opportunity_score", desc=True).execute()
+        if not res.data:
+            # Fallback: get most recent date with predictions
+            latest = sb.table("predictions").select("date").order("date", desc=True).limit(1).execute()
+            if latest.data:
+                latest_date = latest.data[0]["date"]
+                res = sb.table("predictions").select("*").eq("date", latest_date).order("opportunity_score", desc=True).execute()
         return res.data
 
 
 def get_watchlist(date: Optional[str] = None, category: Optional[str] = None) -> list[dict]:
-    """Get watchlist for a date."""
+    """Get watchlist for a date (falls back to most recent)."""
     if date is None:
         date = datetime.now().strftime("%Y-%m-%d")
     if config.USE_SQLITE:
@@ -332,6 +348,23 @@ def get_watchlist(date: Optional[str] = None, category: Optional[str] = None) ->
             rows = conn.execute(
                 "SELECT * FROM watchlist WHERE date = ? ORDER BY category, rank", (date,)
             ).fetchall()
+        if not rows:
+            # Fallback: most recent date
+            row = conn.execute(
+                "SELECT date FROM watchlist ORDER BY date DESC LIMIT 1"
+            ).fetchone()
+            if row:
+                fallback_date = row["date"]
+                if category:
+                    rows = conn.execute(
+                        "SELECT * FROM watchlist WHERE date = ? AND category = ? ORDER BY rank",
+                        (fallback_date, category)
+                    ).fetchall()
+                else:
+                    rows = conn.execute(
+                        "SELECT * FROM watchlist WHERE date = ? ORDER BY category, rank",
+                        (fallback_date,)
+                    ).fetchall()
         conn.close()
         return [dict(r) for r in rows]
     else:
@@ -339,7 +372,16 @@ def get_watchlist(date: Optional[str] = None, category: Optional[str] = None) ->
         q = sb.table("watchlist").select("*").eq("date", date)
         if category:
             q = q.eq("category", category)
-        return q.order("rank").execute().data
+        result = q.order("rank").execute()
+        if not result.data:
+            # Fallback: most recent date
+            latest = sb.table("watchlist").select("date").order("date", desc=True).limit(1).execute()
+            if latest.data:
+                q = sb.table("watchlist").select("*").eq("date", latest.data[0]["date"])
+                if category:
+                    q = q.eq("category", category)
+                result = q.order("rank").execute()
+        return result.data
 
 
 def get_stock_data(symbol: str, limit: int = 365) -> pd.DataFrame:

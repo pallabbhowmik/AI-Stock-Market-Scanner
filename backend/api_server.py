@@ -314,6 +314,43 @@ async def trigger_quick_scan():
     return {"status": "scan_started", "message": "Quick scan started in background"}
 
 
+@app.post("/api/scan/lite")
+async def trigger_lite_scan():
+    """Trigger a lightweight scan using only major large-cap stocks.
+    Designed for resource-constrained environments like Render free tier."""
+    import threading
+    if _scan_status["running"]:
+        return {"status": "already_running", "message": "A scan is already in progress"}
+
+    _scan_status["running"] = True
+    _scan_status["error"] = None
+    _scan_status["result"] = None
+    _scan_status["started_at"] = datetime.now().isoformat()
+    _scan_status["current_step"] = "Starting lite scan…"
+    _scan_status["progress"] = 0
+    _scan_status["total_steps"] = 0
+    _scan_status["stocks_processed"] = 0
+    _scan_status["stocks_total"] = 0
+
+    def _run():
+        try:
+            # Use only the ~130 hardcoded large-cap symbols
+            result = run_quick_scan(
+                symbols=config.FALLBACK_SYMBOLS[:50],
+                progress=_scan_status,
+            )
+            _scan_status["result"] = result
+        except Exception as e:
+            logger.error("Lite scan error: %s", e, exc_info=True)
+            _scan_status["error"] = str(e)
+        finally:
+            _scan_status["running"] = False
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+    return {"status": "scan_started", "message": "Lite scan started (50 large-cap stocks)"}
+
+
 @app.get("/api/scan/status")
 async def scan_status():
     """Get current scan status."""

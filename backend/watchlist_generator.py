@@ -286,6 +286,7 @@ def run_quick_scan(symbols: list[str] = None, progress: dict = None) -> dict:
     Run a quick scan on specific symbols (no market download / filtering).
     Useful for updating predictions during the day.
     """
+    import time
     _update_progress(progress, "Loading stocks…", 5)
     if symbols is None:
         # Use previously filtered stocks from DB
@@ -298,10 +299,16 @@ def run_quick_scan(symbols: list[str] = None, progress: dict = None) -> dict:
     _update_progress(progress, "Downloading price data…", 10, stocks_total=len(symbols))
     stock_data = {}
     for i, sym in enumerate(symbols):
-        df = fetch_daily_data(sym, period="3mo")
-        if not df.empty:
-            df = clean_data(df)
-            stock_data[sym] = df
+        try:
+            df = fetch_daily_data(sym, period="3mo")
+            if not df.empty:
+                df = clean_data(df)
+                stock_data[sym] = df
+        except Exception as e:
+            logger.warning("Data fetch failed for %s: %s", sym, e)
+        # Small delay to avoid yfinance rate-limiting
+        if (i + 1) % 5 == 0:
+            time.sleep(1)
         _update_progress(progress, "Downloading price data…",
                          10 + int(30 * (i + 1) / len(symbols)),
                          stocks_processed=i + 1, stocks_total=len(symbols))

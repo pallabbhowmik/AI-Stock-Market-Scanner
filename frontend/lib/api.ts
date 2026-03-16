@@ -272,6 +272,7 @@ export const api = {
     ),
   triggerFullScan: () => postAPI<{ status: string }>("/api/scan/full"),
   triggerQuickScan: () => postAPI<{ status: string }>("/api/scan/quick"),
+  triggerLiteScan: () => postAPI<{ status: string }>("/api/scan/lite"),
   getScanStatus: () => fetchAPI<{
     running: boolean;
     error: string | null;

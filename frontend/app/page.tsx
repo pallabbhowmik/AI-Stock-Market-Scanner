@@ -438,14 +438,14 @@ function PredictionTable({ predictions, title, emptyMsg }: { predictions: Predic
 }
 
 // ─── Getting Started Banner ─────────────────────────────────────────────────
-function GettingStartedBanner({ onFullScan, scanning }: { onFullScan: () => void; scanning: boolean }) {
+function GettingStartedBanner({ onFullScan, onLiteScan, scanning }: { onFullScan: () => void; onLiteScan: () => void; scanning: boolean }) {
   return (
     <div className="animate-in rounded-xl border border-blue-700/30 bg-gradient-to-r from-blue-900/30 via-purple-900/20 to-slate-900 p-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="space-y-2">
           <h2 className="text-xl font-bold text-white">Welcome! Let&apos;s scan the market</h2>
           <p className="text-sm text-slate-300">
-            Click <strong>Full Scan</strong> to analyze 2000+ NSE stocks using AI. The scanner will:
+            Click <strong>Lite Scan</strong> to start fast with 50 large-cap stocks, or <strong>Full Scan</strong> to analyze 2000+ NSE stocks.
           </p>
           <div className="flex flex-wrap gap-3 text-xs text-slate-400">
             <span className="flex items-center gap-1"><Target size={12} className="text-blue-400" /> Filter quality stocks</span>
@@ -454,14 +454,24 @@ function GettingStartedBanner({ onFullScan, scanning }: { onFullScan: () => void
             <span className="flex items-center gap-1"><Shield size={12} className="text-green-400" /> Calculate risk</span>
           </div>
         </div>
-        <button
-          onClick={onFullScan}
-          disabled={scanning}
-          className="flex items-center gap-2 whitespace-nowrap rounded-lg bg-gradient-to-r from-blue-600 to-purple-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-900/30 transition hover:from-blue-500 hover:to-purple-500 disabled:opacity-50"
-        >
-          {scanning ? <Loader2 size={16} className="animate-spin" /> : <Play size={16} />}
-          {scanning ? "Scanning..." : "Run Full Scan"}
-        </button>
+        <div className="flex flex-col gap-2">
+          <button
+            onClick={onLiteScan}
+            disabled={scanning}
+            className="flex items-center gap-2 whitespace-nowrap rounded-lg bg-gradient-to-r from-green-600 to-emerald-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-green-900/30 transition hover:from-green-500 hover:to-emerald-500 disabled:opacity-50"
+          >
+            {scanning ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+            {scanning ? "Scanning..." : "Lite Scan (Fast)"}
+          </button>
+          <button
+            onClick={onFullScan}
+            disabled={scanning}
+            className="flex items-center gap-2 whitespace-nowrap rounded-lg bg-gradient-to-r from-blue-600 to-purple-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-900/30 transition hover:from-blue-500 hover:to-purple-500 disabled:opacity-50"
+          >
+            {scanning ? <Loader2 size={16} className="animate-spin" /> : <Play size={16} />}
+            {scanning ? "Scanning..." : "Full Scan (2000+ stocks)"}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -585,7 +595,22 @@ export default function DashboardPage() {
     }
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    // On mount: load data, and check if a scan is already running
+    load();
+    api.getScanStatus().then((status) => {
+      if (status.running) {
+        setScanning(true);
+        setScanMsg(status.current_step || "Scan in progress…");
+        setScanProgress(status.progress ?? 0);
+        setScanStep(status.current_step ?? "");
+        setScanStocksProcessed(status.stocks_processed ?? 0);
+        setScanStocksTotal(status.stocks_total ?? 0);
+        startScanPoll("Scan");
+      }
+    }).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const startScanPoll = (label: string) => {
     const poll = setInterval(async () => {
@@ -612,8 +637,13 @@ export default function DashboardPage() {
         } else {
           setScanMsg(status.current_step || `${label} in progress…`);
         }
-      } catch { /* keep polling */ }
-    }, 2000);
+      } catch {
+        // If API is unreachable, stop polling
+        clearInterval(poll);
+        setScanning(false);
+        setScanMsg("");
+      }
+    }, 3000);
   };
 
   const handleFullScan = async () => {
@@ -636,6 +666,18 @@ export default function DashboardPage() {
       startScanPoll("Quick scan");
     } catch {
       setScanMsg("Failed to start quick scan.");
+      setScanning(false);
+    }
+  };
+
+  const handleLiteScan = async () => {
+    setScanning(true);
+    setScanMsg("Lite scan started — analyzing 50 large-cap stocks...");
+    try {
+      await api.triggerLiteScan();
+      startScanPoll("Lite scan");
+    } catch {
+      setScanMsg("Failed to start lite scan.");
       setScanning(false);
     }
   };
@@ -720,6 +762,13 @@ export default function DashboardPage() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button
+            onClick={handleLiteScan}
+            disabled={scanning}
+            className="flex items-center gap-1.5 rounded-lg border border-green-700 bg-green-900/40 px-4 py-2 text-sm text-green-400 transition hover:bg-green-900/60 disabled:opacity-50"
+          >
+            <Sparkles size={14} /> Lite Scan
+          </button>
+          <button
             onClick={handleQuickScan}
             disabled={scanning}
             className="flex items-center gap-1.5 rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-sm text-white transition hover:bg-slate-600 disabled:opacity-50"
@@ -761,7 +810,7 @@ export default function DashboardPage() {
       />
 
       {/* Getting started banner when no data */}
-      {!hasData && !scanning && <GettingStartedBanner onFullScan={handleFullScan} scanning={scanning} />}
+      {!hasData && !scanning && <GettingStartedBanner onFullScan={handleFullScan} onLiteScan={handleLiteScan} scanning={scanning} />}
 
       {/* Stats Grid */}
       {overview && (
