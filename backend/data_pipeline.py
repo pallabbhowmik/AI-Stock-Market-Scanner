@@ -38,7 +38,9 @@ def _download_with_retry(symbol: str, **kwargs) -> pd.DataFrame:
 def fetch_daily_data(symbol: str, period: str = "1y") -> pd.DataFrame:
     """Fetch daily OHLCV data for a single symbol."""
     try:
-        df = _download_with_retry(symbol, period=period, interval="1d")
+        # Append .NS suffix for NSE stocks if not already present
+        ticker = symbol if "." in symbol else f"{symbol}.NS"
+        df = _download_with_retry(ticker, period=period, interval="1d")
         if df.empty:
             return pd.DataFrame()
 
@@ -73,7 +75,8 @@ def fetch_daily_data(symbol: str, period: str = "1y") -> pd.DataFrame:
 def fetch_intraday_data(symbol: str, interval: str = "1h", period: str = "5d") -> pd.DataFrame:
     """Fetch intraday data for multi-timeframe analysis."""
     try:
-        df = _download_with_retry(symbol, period=period, interval=interval)
+        ticker = symbol if "." in symbol else f"{symbol}.NS"
+        df = _download_with_retry(ticker, period=period, interval=interval)
         if df.empty:
             return pd.DataFrame()
 
