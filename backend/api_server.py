@@ -261,6 +261,10 @@ async def trigger_full_scan(max_symbols: int = Query(default=0)):
             result = run_full_scan(max_symbols=max_symbols, retrain=True,
                                    progress=_scan_status)
             _scan_status["result"] = result
+        except MemoryError:
+            import gc; gc.collect()
+            logger.error("Full scan aborted: out of memory")
+            _scan_status["error"] = "Out of memory – try Lite Scan instead"
         except Exception as e:
             logger.error("Full scan error: %s", e, exc_info=True)
             _scan_status["error"] = str(e)
@@ -294,6 +298,10 @@ async def trigger_quick_scan():
             from backend.watchlist_generator import run_quick_scan
             result = run_quick_scan(progress=_scan_status)
             _scan_status["result"] = result
+        except MemoryError:
+            import gc; gc.collect()
+            logger.error("Quick scan aborted: out of memory")
+            _scan_status["error"] = "Out of memory \u2013 try Lite Scan instead"
         except Exception as e:
             logger.error("Quick scan error: %s", e, exc_info=True)
             _scan_status["error"] = str(e)
@@ -332,6 +340,10 @@ async def trigger_lite_scan():
                 progress=_scan_status,
             )
             _scan_status["result"] = result
+        except MemoryError:
+            import gc; gc.collect()
+            logger.error("Lite scan aborted: out of memory")
+            _scan_status["error"] = "Out of memory"
         except Exception as e:
             logger.error("Lite scan error: %s", e, exc_info=True)
             _scan_status["error"] = str(e)

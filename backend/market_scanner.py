@@ -16,7 +16,7 @@ from backend import config
 logger = logging.getLogger(__name__)
 
 # ── Batch download chunk size & throttle ────────────────────────────────
-_DOWNLOAD_CHUNK = 50          # symbols per yf.download() call
+_DOWNLOAD_CHUNK = 30          # symbols per yf.download() call (keep small for memory)
 _CHUNK_DELAY    = 2           # seconds between chunks (rate-limit guard)
 _MAX_RETRIES    = 3           # retries per chunk on failure
 _RETRY_BACKOFF  = 5           # base seconds for exponential back-off
@@ -63,13 +63,15 @@ def get_stock_info_batch(symbols: list[str], max_workers: int = 5) -> list[dict]
     Uses yf.download() in chunks instead of individual Ticker calls to
     minimise HTTP requests and avoid Yahoo rate-limiting / crumb errors.
     """
+    import gc as _gc
     ticker_symbols = [f"{s}.NS" for s in symbols]
     results = []
 
     for chunk_start in range(0, len(ticker_symbols), _DOWNLOAD_CHUNK):
         chunk = ticker_symbols[chunk_start : chunk_start + _DOWNLOAD_CHUNK]
 
-        hist_data = _download_chunk_with_retry(chunk, period="3mo", interval="1d")
+        # 1mo is enough for volume/volatility filtering (need ~20 days)
+        hist_data = _download_chunk_with_retry(chunk, period="1mo", interval="1d")
         if hist_data is None:
             continue
 
@@ -118,7 +120,9 @@ def get_stock_info_batch(symbols: list[str], max_workers: int = 5) -> list[dict]
             except Exception as e:
                 logger.debug("Error processing %s: %s", sym, e)
 
-        # Throttle between chunks
+        # Free the large chunk DataFrame and throttle between chunks
+        del hist_data
+        _gc.collect()
         if chunk_start + _DOWNLOAD_CHUNK < len(ticker_symbols):
             time.sleep(_CHUNK_DELAY)
 

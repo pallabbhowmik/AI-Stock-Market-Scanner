@@ -57,16 +57,16 @@ def _create_models() -> dict:
     import xgboost as xgb
     return {
         "RandomForest": RandomForestClassifier(
-            n_estimators=200, max_depth=10, min_samples_split=10,
-            min_samples_leaf=5, random_state=42, n_jobs=-1,
+            n_estimators=100, max_depth=8, min_samples_split=10,
+            min_samples_leaf=5, random_state=42, n_jobs=1,
         ),
         "XGBoost": xgb.XGBClassifier(
-            n_estimators=300, max_depth=6, learning_rate=0.05,
+            n_estimators=150, max_depth=5, learning_rate=0.08,
             subsample=0.8, colsample_bytree=0.8,
             use_label_encoder=False, eval_metric="logloss", random_state=42,
         ),
         "GradientBoosting": GradientBoostingClassifier(
-            n_estimators=200, max_depth=5, learning_rate=0.05,
+            n_estimators=100, max_depth=4, learning_rate=0.08,
             subsample=0.8, random_state=42,
         ),
     }
@@ -98,8 +98,17 @@ def train_models(all_data: dict[str, pd.DataFrame]) -> dict:
         return {}
 
     combined = pd.concat(dfs, ignore_index=True)
+    del dfs
+
+    # Cap samples to limit memory during training
+    _MAX_TRAIN_ROWS = 15_000
+    if len(combined) > _MAX_TRAIN_ROWS:
+        combined = combined.sample(n=_MAX_TRAIN_ROWS, random_state=42)
+        combined = combined.sort_index()  # keep some temporal ordering
+
     X = combined[feature_cols].values
     y = combined["direction"].values
+    del combined
 
     logger.info("Training on %d samples, %d features", len(X), len(feature_cols))
 
@@ -140,10 +149,15 @@ def train_models(all_data: dict[str, pd.DataFrame]) -> dict:
     # Save ensemble metadata
     _save({n: {"accuracy": r["accuracy"], "auc": r["auc"]} for n, r in results.items()}, "ensemble_meta")
 
+    # Free training data and models from memory
+    del X_train, X_test, X_train_s, X_test_s, y_train, y_test, X, y
+    del models, results
+    import gc as _gc; _gc.collect()
+
     # Invalidate cache so next predict uses new models
     clear_model_cache()
 
-    return results
+    return {}
 
 
 def predict_stock(df: pd.DataFrame) -> dict:
