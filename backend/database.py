@@ -244,9 +244,21 @@ def save_predictions(predictions: list[dict]):
     else:
         sb = _get_supabase()
         sb.table("predictions").delete().eq("date", today).execute()
+        rows = []
         for p in predictions:
-            p["date"] = today
-        sb.table("predictions").insert(predictions).execute()
+            rows.append({
+                "symbol": p["symbol"],
+                "date": today,
+                "signal": p.get("signal", "HOLD"),
+                "confidence": p.get("confidence", 0),
+                "ai_probability": p.get("ai_probability", 0.5),
+                "momentum_score": p.get("momentum_score", 0),
+                "breakout_score": p.get("breakout_score", 0),
+                "volume_spike_score": p.get("volume_spike_score", 0),
+                "opportunity_score": p.get("opportunity_score", 0),
+                "explanation": p.get("explanation", ""),
+            })
+        sb.table("predictions").insert(rows).execute()
 
 
 def save_watchlist(watchlist: list[dict]):
@@ -273,9 +285,19 @@ def save_watchlist(watchlist: list[dict]):
     else:
         sb = _get_supabase()
         sb.table("watchlist").delete().eq("date", today).execute()
+        rows = []
         for w in watchlist:
-            w["date"] = today
-        sb.table("watchlist").insert(watchlist).execute()
+            rows.append({
+                "date": today,
+                "category": w.get("category", ""),
+                "symbol": w["symbol"],
+                "signal": w.get("signal", "HOLD"),
+                "confidence": w.get("confidence", 0),
+                "opportunity_score": w.get("opportunity_score", 0),
+                "explanation": w.get("explanation", ""),
+                "rank": w.get("rank", 0),
+            })
+        sb.table("watchlist").insert(rows).execute()
 
 
 def save_scan_log(started_at: str, finished_at: str, stocks_scanned: int,
