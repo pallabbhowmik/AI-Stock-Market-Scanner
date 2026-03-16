@@ -9,7 +9,6 @@ from typing import Optional
 
 import pandas as pd
 import numpy as np
-import yfinance as yf
 import requests
 
 from backend import config
@@ -129,6 +128,7 @@ def get_stock_info_batch(symbols: list[str], max_workers: int = 5) -> list[dict]
 
 def _download_chunk_with_retry(symbols: list[str], **kwargs) -> Optional[pd.DataFrame]:
     """Download a chunk of symbols with retry + exponential back-off."""
+    import yfinance as yf
     for attempt in range(1, _MAX_RETRIES + 1):
         try:
             data = yf.download(

@@ -9,10 +9,6 @@ import pickle
 
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
-from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import accuracy_score, roc_auc_score
-import xgboost as xgb
 
 from backend import config
 from backend.feature_engineering import get_feature_columns
@@ -38,9 +34,27 @@ def _load(name: str):
         return pickle.load(f)
 
 
+# ─── Model Cache (avoid re-loading pickles on every predict call) ────────
+_model_cache: dict = {}
+
+
+def _load_cached(name: str):
+    """Load a pickle file, returning cached version if available."""
+    if name not in _model_cache:
+        _model_cache[name] = _load(name)
+    return _model_cache[name]
+
+
+def clear_model_cache():
+    """Clear the model cache (call after retraining)."""
+    _model_cache.clear()
+
+
 # ─── Model Definitions ──────────────────────────────────────────────────────
 
 def _create_models() -> dict:
+    from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+    import xgboost as xgb
     return {
         "RandomForest": RandomForestClassifier(
             n_estimators=200, max_depth=10, min_samples_split=10,
@@ -65,6 +79,8 @@ def train_models(all_data: dict[str, pd.DataFrame]) -> dict:
     Train ensemble models on combined data from multiple stocks.
     Returns {model_name: {model, scaler, accuracy, auc}}.
     """
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.metrics import accuracy_score, roc_auc_score
     # Combine data from all stocks
     dfs = []
     feature_cols = get_feature_columns()
@@ -124,6 +140,9 @@ def train_models(all_data: dict[str, pd.DataFrame]) -> dict:
     # Save ensemble metadata
     _save({n: {"accuracy": r["accuracy"], "auc": r["auc"]} for n, r in results.items()}, "ensemble_meta")
 
+    # Invalidate cache so next predict uses new models
+    clear_model_cache()
+
     return results
 
 
@@ -132,9 +151,9 @@ def predict_stock(df: pd.DataFrame) -> dict:
     Predict direction for a single stock using the ensemble.
     Returns {signal, confidence, ai_probability, model_votes}.
     """
-    feature_cols = _load("feature_cols")
-    scaler = _load("scaler")
-    meta = _load("ensemble_meta")
+    feature_cols = _load_cached("feature_cols")
+    scaler = _load_cached("scaler")
+    meta = _load_cached("ensemble_meta")
 
     if feature_cols is None or scaler is None or meta is None:
         return {"signal": "HOLD", "confidence": 0, "ai_probability": 0.5}
@@ -159,7 +178,7 @@ def predict_stock(df: pd.DataFrame) -> dict:
     model_votes = {}
 
     for name in meta:
-        model = _load(name)
+        model = _load_cached(name)
         if model is None:
             continue
         prob = model.predict_proba(X)[0, 1]

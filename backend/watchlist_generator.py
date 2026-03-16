@@ -2,6 +2,7 @@
 Watchlist Generator
 Orchestrates the full 13-module AI trading pipeline and generates the daily watchlist.
 """
+import gc
 import logging
 from datetime import datetime
 
@@ -88,11 +89,16 @@ def run_full_scan(max_symbols: int = 0, retrain: bool = False,
         if not featured.empty:
             featured_data[sym] = featured
 
+    # Free raw stock data — featured_data has everything we need
+    del stock_data
+    gc.collect()
+
     # ── Step 5a: Train ML models if needed ──
     if retrain or not _models_exist():
         _update_progress(progress, "Training ML models…", 38)
         logger.info("Step 5a: Training ML models...")
         train_models(featured_data)
+        gc.collect()
 
     # ── Step 7: Train RL agent ──
     _update_progress(progress, "Training RL agent…", 45)
@@ -101,6 +107,7 @@ def run_full_scan(max_symbols: int = 0, retrain: bool = False,
         train_rl_agent(featured_data)
     except Exception as e:
         logger.warning("RL training skipped: %s", e)
+    gc.collect()
 
     # ── Step 10: Market regime detection ──
     _update_progress(progress, "Detecting market regime…", 50)
@@ -316,6 +323,10 @@ def run_quick_scan(symbols: list[str] = None, progress: dict = None) -> dict:
     _update_progress(progress, "Computing indicators…", 42)
     featured_data = {sym: compute_features(df) for sym, df in stock_data.items()}
     featured_data = {sym: df for sym, df in featured_data.items() if not df.empty}
+
+    # Free raw data
+    del stock_data
+    gc.collect()
 
     _update_progress(progress, "Generating predictions…", 50,
                      stocks_total=len(featured_data))

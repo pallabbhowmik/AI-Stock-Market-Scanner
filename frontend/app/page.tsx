@@ -672,7 +672,7 @@ export default function DashboardPage() {
 
   const handleLiteScan = async () => {
     setScanning(true);
-    setScanMsg("Lite scan started — analyzing 50 large-cap stocks...");
+    setScanMsg("Lite scan started — analyzing 30 large-cap stocks...");
     try {
       await api.triggerLiteScan();
       startScanPoll("Lite scan");

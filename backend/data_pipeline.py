@@ -11,7 +11,6 @@ from typing import Optional
 
 import pandas as pd
 import numpy as np
-import yfinance as yf
 
 from backend import config
 
@@ -23,6 +22,7 @@ _RETRY_BACKOFF = 3   # seconds, doubles each attempt
 
 def _download_with_retry(symbol: str, **kwargs) -> pd.DataFrame:
     """Download data for a single symbol with retry + exponential back-off."""
+    import yfinance as yf
     for attempt in range(1, _MAX_RETRIES + 1):
         try:
             data = yf.download(symbol, progress=False, **kwargs)

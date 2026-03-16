@@ -6,7 +6,6 @@ import logging
 
 import numpy as np
 import pandas as pd
-import ta
 
 from backend import config
 
@@ -15,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 def compute_features(df: pd.DataFrame) -> pd.DataFrame:
     """Compute all technical indicators on a daily OHLCV DataFrame."""
+    import ta
     if df.empty or len(df) < 30:
         return df
 

@@ -11,23 +11,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend import config, database
 from backend.scheduler import start_scheduler, stop_scheduler, get_scheduler_status
-from backend.watchlist_generator import run_full_scan, run_quick_scan
-from backend.data_pipeline import fetch_daily_data, clean_data
-from backend.feature_engineering import compute_features
-from backend.market_regime import detect_regime
-from backend.meta_strategy import get_strategy_status, get_tracker
-from backend.risk_management import generate_risk_recommendation
-from backend.portfolio_optimizer import optimize_portfolio
-from backend.sentiment_analysis import get_stock_sentiment
-from backend.institutional_activity import detect_institutional_activity
-from backend.training_pipeline import (
-    get_pipeline_status, run_training_pipeline_async, rollback_model,
-)
-from backend.model_versioning import get_all_versions, get_current_version
-from backend.paper_trading import (
-    execute_order, auto_execute_signals, get_portfolio_summary,
-    get_performance_stats, get_trade_history, reset_portfolio,
-)
+
+# Heavy modules are imported lazily inside route handlers to keep
+# idle memory under Render's 512 MB free-tier limit.
 
 logging.basicConfig(
     level=logging.INFO,
@@ -195,6 +181,7 @@ async def stock_detail(symbol: str):
 @app.get("/api/stocks/{symbol}/chart")
 async def stock_chart(symbol: str, period: int = Query(default=90, le=365)):
     """Get OHLCV chart data for a stock."""
+    from backend.data_pipeline import fetch_daily_data, clean_data
     df = database.get_stock_data(symbol, limit=period)
     if df.empty:
         # Try fetching live
@@ -220,6 +207,8 @@ async def stock_chart(symbol: str, period: int = Query(default=90, le=365)):
 @app.get("/api/stocks/{symbol}/indicators")
 async def stock_indicators(symbol: str):
     """Get technical indicators for a stock."""
+    from backend.data_pipeline import fetch_daily_data, clean_data
+    from backend.feature_engineering import compute_features
     df = database.get_stock_data(symbol, limit=365)
     if df.empty:
         df = fetch_daily_data(symbol, period="1y")
@@ -268,6 +257,7 @@ async def trigger_full_scan(max_symbols: int = Query(default=0)):
 
     def _run():
         try:
+            from backend.watchlist_generator import run_full_scan
             result = run_full_scan(max_symbols=max_symbols, retrain=True,
                                    progress=_scan_status)
             _scan_status["result"] = result
@@ -301,6 +291,7 @@ async def trigger_quick_scan():
 
     def _run():
         try:
+            from backend.watchlist_generator import run_quick_scan
             result = run_quick_scan(progress=_scan_status)
             _scan_status["result"] = result
         except Exception as e:
@@ -334,9 +325,10 @@ async def trigger_lite_scan():
 
     def _run():
         try:
-            # Use only the ~130 hardcoded large-cap symbols
+            from backend.watchlist_generator import run_quick_scan
+            # Use only the top 30 large-cap symbols for minimal memory usage
             result = run_quick_scan(
-                symbols=config.FALLBACK_SYMBOLS[:50],
+                symbols=config.FALLBACK_SYMBOLS[:30],
                 progress=_scan_status,
             )
             _scan_status["result"] = result
@@ -348,7 +340,7 @@ async def trigger_lite_scan():
 
     thread = threading.Thread(target=_run, daemon=True)
     thread.start()
-    return {"status": "scan_started", "message": "Lite scan started (50 large-cap stocks)"}
+    return {"status": "scan_started", "message": "Lite scan started (30 large-cap stocks)"}
 
 
 @app.get("/api/scan/status")
@@ -405,6 +397,8 @@ async def scheduler_status():
 @app.get("/api/meta-strategy")
 async def meta_strategy_status():
     """Get current Meta-AI strategy status: weights, regime, explanation."""
+    from backend.market_regime import detect_regime
+    from backend.meta_strategy import get_strategy_status
     try:
         regime_info = detect_regime()
     except Exception:
@@ -424,6 +418,7 @@ async def meta_strategy_status():
 @app.get("/api/regime")
 async def market_regime():
     """Get current market regime (BULL / BEAR / SIDEWAYS)."""
+    from backend.market_regime import detect_regime
     try:
         info = detect_regime()
     except Exception as e:
@@ -434,6 +429,7 @@ async def market_regime():
 @app.get("/api/strategies/performance")
 async def strategies_performance():
     """Get performance metrics for all trading strategies."""
+    from backend.meta_strategy import get_tracker
     tracker = get_tracker()
     return {"strategies": tracker.get_all_stats()}
 
@@ -443,6 +439,8 @@ async def strategies_performance():
 @app.get("/api/risk/{symbol}")
 async def stock_risk(symbol: str):
     """Get risk management recommendation for a stock."""
+    from backend.data_pipeline import fetch_daily_data, clean_data
+    from backend.risk_management import generate_risk_recommendation
     df = database.get_stock_data(symbol, limit=365)
     if df.empty:
         df = fetch_daily_data(symbol, period="1y")
@@ -469,6 +467,8 @@ async def portfolio_optimization(
     if not buy_preds:
         return {"allocation": [], "message": "No BUY signals to optimize"}
 
+    from backend.data_pipeline import fetch_daily_data, clean_data
+    from backend.portfolio_optimizer import optimize_portfolio
     symbols = [p["symbol"] for p in buy_preds]
     scores = {p["symbol"]: p.get("opportunity_score", 0.5) for p in buy_preds}
 
@@ -492,6 +492,7 @@ async def portfolio_optimization(
 @app.get("/api/stocks/{symbol}/sentiment")
 async def stock_sentiment(symbol: str):
     """Get sentiment analysis for a stock."""
+    from backend.sentiment_analysis import get_stock_sentiment
     result = get_stock_sentiment(symbol)
     return result
 
@@ -499,6 +500,8 @@ async def stock_sentiment(symbol: str):
 @app.get("/api/stocks/{symbol}/institutional")
 async def stock_institutional(symbol: str):
     """Detect institutional activity for a stock."""
+    from backend.data_pipeline import fetch_daily_data, clean_data
+    from backend.institutional_activity import detect_institutional_activity
     df = database.get_stock_data(symbol, limit=90)
     if df.empty:
         df = fetch_daily_data(symbol, period="3mo")
@@ -515,12 +518,14 @@ async def stock_institutional(symbol: str):
 @app.get("/api/training/status")
 async def training_status():
     """Get full training pipeline status including model version info."""
+    from backend.training_pipeline import get_pipeline_status
     return get_pipeline_status()
 
 
 @app.post("/api/training/start")
 async def trigger_training():
     """Start a model retraining cycle in the background."""
+    from backend.training_pipeline import run_training_pipeline_async
     started = run_training_pipeline_async()
     if started:
         return {"status": "training_started", "message": "Model retraining started in background"}
@@ -537,6 +542,7 @@ async def training_logs(limit: int = Query(default=10, le=50)):
 @app.get("/api/training/versions")
 async def model_versions():
     """Get all stored model versions with metadata."""
+    from backend.model_versioning import get_all_versions, get_current_version
     versions = get_all_versions()
     current = get_current_version()
     return {
@@ -548,6 +554,7 @@ async def model_versions():
 @app.post("/api/training/rollback")
 async def rollback(steps: int = Query(default=1, ge=1, le=10)):
     """Roll back the production model to a previous version."""
+    from backend.training_pipeline import rollback_model
     result = rollback_model(steps)
     return result
 
@@ -557,12 +564,14 @@ async def rollback(steps: int = Query(default=1, ge=1, le=10)):
 @app.get("/api/paper/portfolio")
 async def paper_portfolio():
     """Get current paper trading portfolio: cash, positions, value."""
+    from backend.paper_trading import get_portfolio_summary
     return get_portfolio_summary()
 
 
 @app.get("/api/paper/positions")
 async def paper_positions():
     """Get open paper trading positions."""
+    from backend.paper_trading import get_portfolio_summary
     summary = get_portfolio_summary()
     return {"positions": summary.get("positions", []), "count": summary.get("open_positions", 0)}
 
@@ -578,6 +587,7 @@ async def paper_order(
     take_profit_price: float = Query(default=0),
 ):
     """Place a paper trading order."""
+    from backend.paper_trading import execute_order
     result = execute_order(
         symbol=symbol.upper(),
         side=side.upper(),
@@ -593,6 +603,7 @@ async def paper_order(
 @app.get("/api/paper/trades")
 async def paper_trades(limit: int = Query(default=50, le=500)):
     """Get paper trade history."""
+    from backend.paper_trading import get_trade_history
     trades = get_trade_history(limit=limit)
     return {"trades": trades, "total": len(trades)}
 
@@ -600,12 +611,14 @@ async def paper_trades(limit: int = Query(default=50, le=500)):
 @app.get("/api/paper/performance")
 async def paper_performance():
     """Get paper trading performance statistics."""
+    from backend.paper_trading import get_performance_stats
     return get_performance_stats()
 
 
 @app.post("/api/paper/auto-execute")
 async def paper_auto_execute():
     """Auto-execute paper trades based on current AI signals."""
+    from backend.paper_trading import auto_execute_signals
     results = auto_execute_signals()
     return {"executed": len(results), "trades": results}
 
@@ -613,6 +626,7 @@ async def paper_auto_execute():
 @app.post("/api/paper/reset")
 async def paper_reset():
     """Reset paper trading portfolio to initial balance."""
+    from backend.paper_trading import reset_portfolio
     return reset_portfolio()
 
 
