@@ -9,11 +9,24 @@ import logging
 from datetime import datetime
 from typing import Optional
 
+import math
+
 import pandas as pd
 
 from backend import config
 
 logger = logging.getLogger(__name__)
+
+
+def _sanitize(obj):
+    """Replace NaN / Inf with None so JSON serialisation succeeds."""
+    if isinstance(obj, dict):
+        return {k: _sanitize(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize(v) for v in obj]
+    if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+        return None
+    return obj
 
 # ─── SQLite Implementation ───────────────────────────────────────────────────
 
@@ -188,7 +201,7 @@ def upsert_scanned_stocks(stocks: list[dict]):
         sb = _get_supabase()
         for s in stocks:
             s["last_updated"] = datetime.now().isoformat()
-        sb.table("scanned_stocks").upsert(stocks).execute()
+        sb.table("scanned_stocks").upsert(_sanitize(stocks)).execute()
 
 
 def save_stock_data(df: pd.DataFrame, symbol: str):
@@ -214,7 +227,7 @@ def save_stock_data(df: pd.DataFrame, symbol: str):
         for r in records:
             r["symbol"] = symbol
             r["date"] = str(r["date"])
-        sb.table("stock_data").upsert(records).execute()
+        sb.table("stock_data").upsert(_sanitize(records)).execute()
 
 
 def save_predictions(predictions: list[dict]):
@@ -258,7 +271,7 @@ def save_predictions(predictions: list[dict]):
                 "opportunity_score": p.get("opportunity_score", 0),
                 "explanation": p.get("explanation", ""),
             })
-        sb.table("predictions").insert(rows).execute()
+        sb.table("predictions").insert(_sanitize(rows)).execute()
 
 
 def save_watchlist(watchlist: list[dict]):
@@ -297,7 +310,7 @@ def save_watchlist(watchlist: list[dict]):
                 "explanation": w.get("explanation", ""),
                 "rank": w.get("rank", 0),
             })
-        sb.table("watchlist").insert(rows).execute()
+        sb.table("watchlist").insert(_sanitize(rows)).execute()
 
 
 def save_scan_log(started_at: str, finished_at: str, stocks_scanned: int,
@@ -473,10 +486,10 @@ def save_meta_strategy_state(regime: str, weights: dict, explanation: str):
     else:
         sb = _get_supabase()
         sb.table("meta_strategy_state").delete().eq("date", today).execute()
-        sb.table("meta_strategy_state").insert({
+        sb.table("meta_strategy_state").insert(_sanitize({
             "date": today, "regime": regime,
             "weights": weights_json, "explanation": explanation,
-        }).execute()
+        })).execute()
 
 
 def get_meta_strategy_state() -> Optional[dict]:
@@ -533,7 +546,7 @@ def save_training_log(result: dict):
         conn.close()
     else:
         sb = _get_supabase()
-        sb.table("training_log").insert({
+        sb.table("training_log").insert(_sanitize({
             "version_id": result.get("version_id", ""),
             "started_at": result.get("started_at", ""),
             "finished_at": result.get("finished_at", ""),
@@ -547,7 +560,7 @@ def save_training_log(result: dict):
             "stocks_trained": result.get("stocks_trained", 0),
             "duration_seconds": result.get("duration_seconds", 0),
             "deployed": 1 if result.get("deployed") else 0,
-        }).execute()
+        })).execute()
 
 
 def get_training_logs(limit: int = 20) -> list[dict]:
