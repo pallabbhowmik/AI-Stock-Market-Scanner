@@ -98,6 +98,30 @@ CREATE TABLE IF NOT EXISTS meta_strategy_state (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- ─── Intraday Predictions ──────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS intraday_predictions (
+    id BIGSERIAL PRIMARY KEY,
+    symbol TEXT NOT NULL,
+    horizon TEXT NOT NULL,
+    signal TEXT CHECK (signal IN ('BUY', 'SELL', 'HOLD')),
+    confidence NUMERIC,
+    probability NUMERIC,
+    entry_price NUMERIC,
+    stop_loss NUMERIC,
+    target_price NUMERIC,
+    risk_reward NUMERIC,
+    model_votes JSONB,
+    consensus_direction TEXT,
+    consensus_agreement NUMERIC,
+    explanation TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_intraday_symbol ON intraday_predictions(symbol);
+CREATE INDEX IF NOT EXISTS idx_intraday_horizon ON intraday_predictions(horizon);
+CREATE INDEX IF NOT EXISTS idx_intraday_created ON intraday_predictions(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_intraday_signal ON intraday_predictions(signal);
+
 CREATE INDEX IF NOT EXISTS idx_meta_state_date ON meta_strategy_state(date);
 
 -- ─── Training Log ───────────────────────────────────────────────────────────

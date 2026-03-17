@@ -26,6 +26,31 @@ def _sanitize(obj):
         return [_sanitize(v) for v in obj]
     if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
         return None
+    return _sanitize_value(obj)
+
+
+def _sanitize_value(obj):
+    """Convert numpy/non-standard types to native Python types for JSON."""
+    if isinstance(obj, dict):
+        return {k: _sanitize_value(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize_value(v) for v in obj]
+    # Convert numpy scalars to native Python
+    try:
+        import numpy as np
+        if isinstance(obj, (np.integer,)):
+            return int(obj)
+        if isinstance(obj, (np.floating,)):
+            v = float(obj)
+            if math.isnan(v) or math.isinf(v):
+                return None
+            return v
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+    except ImportError:
+        pass
+    if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+        return None
     return obj
 
 # ─── SQLite Implementation ───────────────────────────────────────────────────
@@ -155,6 +180,28 @@ def init_sqlite():
         );
         CREATE INDEX IF NOT EXISTS idx_paper_trades_symbol ON paper_trades(symbol);
         CREATE INDEX IF NOT EXISTS idx_paper_trades_ts ON paper_trades(timestamp);
+
+        CREATE TABLE IF NOT EXISTS intraday_predictions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            symbol TEXT NOT NULL,
+            timestamp TEXT NOT NULL,
+            horizon TEXT NOT NULL,
+            signal TEXT,
+            confidence REAL,
+            probability REAL,
+            entry_price REAL,
+            stop_loss REAL,
+            target_price REAL,
+            risk_reward REAL,
+            model_votes TEXT,
+            consensus_direction TEXT,
+            consensus_agreement REAL,
+            explanation TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_intra_pred_symbol ON intraday_predictions(symbol);
+        CREATE INDEX IF NOT EXISTS idx_intra_pred_ts ON intraday_predictions(timestamp);
+        CREATE INDEX IF NOT EXISTS idx_intra_pred_horizon ON intraday_predictions(horizon);
     """)
     conn.commit()
     conn.close()
@@ -652,3 +699,93 @@ def clear_paper_trades():
         conn.execute("DELETE FROM paper_trades")
         conn.commit()
         conn.close()
+
+
+# ─── Intraday Predictions ───────────────────────────────────────────────────
+
+def save_intraday_predictions(predictions: list[dict]):
+    """Save intraday prediction results."""
+    if not predictions:
+        return
+    now = datetime.now().isoformat()
+    if config.USE_SQLITE:
+        conn = _get_sqlite_conn()
+        for p in predictions:
+            conn.execute("""
+                INSERT INTO intraday_predictions
+                (symbol, timestamp, horizon, signal, confidence, probability,
+                 entry_price, stop_loss, target_price, risk_reward,
+                 model_votes, consensus_direction, consensus_agreement, explanation)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                p["symbol"], now, p.get("horizon", "15m"),
+                p.get("signal", "HOLD"), p.get("confidence", 0),
+                p.get("probability", 0.5),
+                p.get("entry_price", 0), p.get("stop_loss", 0),
+                p.get("target_price", 0), p.get("risk_reward", 0),
+                json.dumps(_sanitize_value(p.get("model_votes", {}))),
+                p.get("consensus_direction", ""),
+                p.get("consensus_agreement", 0),
+                p.get("explanation", ""),
+            ))
+        conn.commit()
+        conn.close()
+    else:
+        sb = _get_supabase()
+        rows = []
+        for p in predictions:
+            rows.append({
+                "symbol": p["symbol"],
+                "timestamp": now,
+                "horizon": p.get("horizon", "15m"),
+                "signal": p.get("signal", "HOLD"),
+                "confidence": p.get("confidence", 0),
+                "probability": p.get("probability", 0.5),
+                "entry_price": p.get("entry_price", 0),
+                "stop_loss": p.get("stop_loss", 0),
+                "target_price": p.get("target_price", 0),
+                "risk_reward": p.get("risk_reward", 0),
+                "model_votes": json.dumps(_sanitize_value(p.get("model_votes", {}))),
+                "consensus_direction": p.get("consensus_direction", ""),
+                "consensus_agreement": p.get("consensus_agreement", 0),
+                "explanation": p.get("explanation", ""),
+            })
+        sb.table("intraday_predictions").insert(_sanitize(rows)).execute()
+
+
+def get_intraday_predictions(
+    symbol: Optional[str] = None,
+    horizon: Optional[str] = None,
+    limit: int = 100,
+) -> list[dict]:
+    """Get recent intraday predictions."""
+    if config.USE_SQLITE:
+        conn = _get_sqlite_conn()
+        conn.row_factory = sqlite3.Row
+        query = "SELECT * FROM intraday_predictions WHERE 1=1"
+        params = []
+        if symbol:
+            query += " AND symbol = ?"
+            params.append(symbol)
+        if horizon:
+            query += " AND horizon = ?"
+            params.append(horizon)
+        query += " ORDER BY id DESC LIMIT ?"
+        params.append(limit)
+        rows = conn.execute(query, params).fetchall()
+        conn.close()
+        results = []
+        for r in rows:
+            d = dict(r)
+            d["model_votes"] = json.loads(d.get("model_votes", "{}") or "{}")
+            results.append(d)
+        return results
+    else:
+        sb = _get_supabase()
+        q = sb.table("intraday_predictions").select("*")
+        if symbol:
+            q = q.eq("symbol", symbol)
+        if horizon:
+            q = q.eq("horizon", horizon)
+        result = q.order("id", desc=True).limit(limit).execute()
+        return result.data

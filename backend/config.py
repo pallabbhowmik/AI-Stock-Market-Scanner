@@ -88,6 +88,18 @@ API_PORT = int(os.getenv("PORT", "8000"))
 _cors_raw = os.getenv("CORS_ORIGINS", "http://localhost:3000")
 CORS_ORIGINS = [o.strip() for o in _cors_raw.split(",") if o.strip()]
 
+# ─── Intraday Trading ──────────────────────────────────────────────────────────
+INTRADAY_INTERVALS = ["5m", "15m"]         # candle intervals to fetch
+INTRADAY_LOOKBACK = "5d"                    # yfinance period for intraday data
+INTRADAY_HORIZONS = ["15m", "30m", "1h"]    # prediction forward horizons
+INTRADAY_MIN_CONFIDENCE = 0.30              # minimum confidence to surface a signal
+INTRADAY_BUY_THRESHOLD = 0.62              # probability ≥ this → BUY
+INTRADAY_SELL_THRESHOLD = 0.38             # probability ≤ this → SELL
+INTRADAY_STOP_ATR_MULT = 1.5               # stop-loss = price ± ATR × this
+INTRADAY_TARGET_ATR_MULT = 2.5             # target   = price ± ATR × this
+INTRADAY_SCAN_BATCH_SIZE = 15              # stocks per batch during intraday scan
+INTRADAY_TRAIN_SAMPLE = 30                 # # stocks sampled for model training
+
 # ─── Data ──────────────────────────────────────────────────────────────────────
 DATA_LOOKBACK_DAYS = 365
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")

@@ -34,6 +34,17 @@ _scan_status = {
     "stocks_total": 0,
 }
 
+_intraday_scan_status = {
+    "running": False,
+    "error": None,
+    "result": None,
+    "started_at": None,
+    "current_step": "",
+    "progress": 0,
+    "stocks_processed": 0,
+    "stocks_total": 0,
+}
+
 app = FastAPI(
     title="AI Stock Market Scanner",
     description="AI-powered stock scanning and prediction platform for the Indian market",
@@ -640,6 +651,82 @@ async def paper_reset():
     """Reset paper trading portfolio to initial balance."""
     from backend.paper_trading import reset_portfolio
     return reset_portfolio()
+
+
+# ─── Intraday Trading ────────────────────────────────────────────────────────
+
+@app.post("/api/intraday/scan")
+async def intraday_scan(
+    symbols: Optional[str] = Query(default=None, description="Comma-separated symbols (default: all filtered)"),
+    retrain: bool = Query(default=False),
+):
+    """Trigger an intraday scan in the background."""
+    if _intraday_scan_status["running"]:
+        return {"status": "already_running", "progress": _intraday_scan_status["progress"]}
+
+    import threading
+    from backend.intraday_scanner import run_intraday_scan
+
+    sym_list = None
+    if symbols:
+        sym_list = [s.strip().upper() for s in symbols.split(",") if s.strip()]
+
+    _intraday_scan_status.update({
+        "running": True, "error": None, "result": None,
+        "started_at": datetime.now().isoformat(),
+        "current_step": "Starting…", "progress": 0,
+        "stocks_processed": 0, "stocks_total": 0,
+    })
+
+    def _run():
+        try:
+            result = run_intraday_scan(
+                symbols=sym_list, retrain=retrain, progress=_intraday_scan_status,
+            )
+            _intraday_scan_status["result"] = result
+        except Exception as e:
+            logger.exception("Intraday scan failed")
+            _intraday_scan_status["error"] = str(e)
+        finally:
+            _intraday_scan_status["running"] = False
+
+    threading.Thread(target=_run, daemon=True).start()
+    return {"status": "started", "message": "Intraday scan started"}
+
+
+@app.get("/api/intraday/status")
+async def intraday_scan_status():
+    """Get current intraday scan progress."""
+    return dict(_intraday_scan_status)
+
+
+@app.get("/api/intraday/predictions")
+async def intraday_predictions(
+    symbol: Optional[str] = None,
+    horizon: Optional[str] = None,
+    signal: Optional[str] = None,
+    min_confidence: float = Query(default=0.0, ge=0.0, le=1.0),
+    limit: int = Query(default=50, le=500),
+):
+    """Get intraday predictions with optional filters."""
+    from backend.intraday_scanner import get_intraday_signals
+    preds = get_intraday_signals(
+        min_confidence=min_confidence,
+        horizon=horizon,
+        signal_type=signal,
+        limit=limit,
+    )
+    if symbol:
+        symbol = symbol.upper()
+        preds = [p for p in preds if p.get("symbol") == symbol]
+    return {"predictions": preds, "total": len(preds)}
+
+
+@app.get("/api/intraday/signals/{symbol}")
+async def intraday_signals(symbol: str):
+    """Get all intraday signals for a specific stock."""
+    preds = database.get_intraday_predictions(symbol=symbol.upper(), limit=50)
+    return {"symbol": symbol.upper(), "signals": preds, "total": len(preds)}
 
 
 # ─── Run Server ──────────────────────────────────────────────────────────────
