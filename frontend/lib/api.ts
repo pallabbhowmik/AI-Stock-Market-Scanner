@@ -186,6 +186,36 @@ export interface TrainingLog {
   deployed: number;
 }
 
+// ─── Intraday Types ─────────────────────────────────────────────────────────
+
+export interface IntradayPrediction {
+  symbol: string;
+  horizon: string;
+  signal: string;
+  confidence: number;
+  probability: number;
+  entry_price: number;
+  stop_loss: number;
+  target_price: number;
+  risk_reward: number;
+  model_votes: Record<string, number>;
+  consensus_direction: string;
+  consensus_agreement: number;
+  explanation: string;
+  timestamp?: string;
+}
+
+export interface IntradayScanStatus {
+  running: boolean;
+  error: string | null;
+  result: Record<string, unknown> | null;
+  started_at: string | null;
+  current_step: string;
+  progress: number;
+  stocks_processed: number;
+  stocks_total: number;
+}
+
 // ─── Paper Trading Types ────────────────────────────────────────────────────
 
 export interface PaperPosition {
@@ -368,4 +398,22 @@ export const api = {
     postAPI<{ executed: number; trades: PaperTrade[] }>("/api/paper/auto-execute"),
   resetPaperPortfolio: () =>
     postAPI<{ status: string; cash: number }>("/api/paper/reset"),
+
+  // Intraday Trading
+  triggerIntradayScan: (retrain?: boolean) =>
+    postAPI<{ status: string; message?: string }>(
+      `/api/intraday/scan${retrain ? "?retrain=true" : ""}`
+    ),
+  getIntradayScanStatus: () =>
+    fetchAPI<IntradayScanStatus>("/api/intraday/status"),
+  getIntradayPredictions: (params?: { signal?: string; horizon?: string; min_confidence?: number }) => {
+    const q = new URLSearchParams();
+    if (params?.signal) q.set("signal", params.signal);
+    if (params?.horizon) q.set("horizon", params.horizon);
+    if (params?.min_confidence) q.set("min_confidence", String(params.min_confidence));
+    const qs = q.toString();
+    return fetchAPI<{ predictions: IntradayPrediction[]; total: number }>(
+      `/api/intraday/predictions${qs ? `?${qs}` : ""}`
+    ).then((r) => r.predictions);
+  },
 };

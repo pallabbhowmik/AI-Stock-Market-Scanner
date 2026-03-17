@@ -147,7 +147,11 @@ def train_models(all_data: dict[str, pd.DataFrame]) -> dict:
         _save(res["model"], name)
 
     # Save ensemble metadata
-    _save({n: {"accuracy": r["accuracy"], "auc": r["auc"]} for n, r in results.items()}, "ensemble_meta")
+    ensemble_meta = {n: {"accuracy": r["accuracy"], "auc": r["auc"]} for n, r in results.items()}
+    _save(ensemble_meta, "ensemble_meta")
+
+    # Build lightweight return summary before freeing memory
+    summary = dict(ensemble_meta)
 
     # Free training data and models from memory
     del X_train, X_test, X_train_s, X_test_s, y_train, y_test, X, y
@@ -157,7 +161,7 @@ def train_models(all_data: dict[str, pd.DataFrame]) -> dict:
     # Invalidate cache so next predict uses new models
     clear_model_cache()
 
-    return {}
+    return summary
 
 
 def predict_stock(df: pd.DataFrame) -> dict:

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api, Overview, Prediction, MetaStrategyStatus, TrainingStatus } from "@/lib/api";
+import { api, Overview, Prediction, MetaStrategyStatus, TrainingStatus, IntradayPrediction } from "@/lib/api";
 import {
   TrendingUp,
   TrendingDown,
@@ -19,6 +19,7 @@ import {
   Shield,
   Target,
   Activity,
+  Clock,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -555,6 +556,122 @@ function QuickActions() {
 }
 
 // ─── Dashboard Page ─────────────────────────────────────────────────────────
+// ─── Intraday Predictions Panel ─────────────────────────────────────────────
+function IntradayPanel({
+  predictions,
+  onScan,
+  scanning,
+  scanMsg,
+  scanProgress,
+  scanStep,
+}: {
+  predictions: IntradayPrediction[];
+  onScan: () => void;
+  scanning: boolean;
+  scanMsg: string;
+  scanProgress: number;
+  scanStep: string;
+}) {
+  return (
+    <div className="card animate-in">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Clock size={20} className="text-yellow-400" />
+          <h2 className="text-lg font-semibold">Intraday Predictions</h2>
+          <Tip text="AI predictions for 15m, 30m, and 1h timeframes. Run an intraday scan during market hours for live signals." />
+        </div>
+        <button
+          onClick={onScan}
+          disabled={scanning}
+          className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-yellow-600 to-orange-600 px-4 py-1.5 text-xs font-medium text-white transition hover:from-yellow-500 hover:to-orange-500 disabled:opacity-50"
+        >
+          {scanning ? (
+            <><Loader2 size={12} className="animate-spin" /> Scanning...</>
+          ) : (
+            <><Clock size={12} /> Intraday Scan</>
+          )}
+        </button>
+      </div>
+
+      {/* Scan progress */}
+      {scanning && scanMsg && (
+        <div className="mb-4 rounded-lg border border-yellow-800 bg-yellow-900/30 px-4 py-3 text-sm text-yellow-300">
+          <div className="flex items-center gap-3">
+            <Loader2 size={14} className="shrink-0 animate-spin" />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between gap-2">
+                <span className="truncate font-medium">{scanStep || scanMsg}</span>
+                <span className="shrink-0 tabular-nums font-semibold">{scanProgress}%</span>
+              </div>
+              <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-700/60">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-yellow-500 to-orange-500 transition-all duration-500"
+                  style={{ width: `${scanProgress}%` }}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {!predictions.length ? (
+        <p className="text-sm text-slate-500">
+          No intraday signals yet. Run an Intraday Scan during market hours to generate AI predictions.
+        </p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-700 text-left text-xs uppercase text-slate-400">
+                <th className="pb-2 pr-3">Symbol</th>
+                <th className="pb-2 pr-3">Horizon</th>
+                <th className="pb-2 pr-3">Signal</th>
+                <th className="pb-2 pr-3">
+                  Confidence
+                  <Tip text="How sure the AI is about this intraday signal" />
+                </th>
+                <th className="pb-2 pr-3">Entry</th>
+                <th className="pb-2 pr-3">Stop Loss</th>
+                <th className="pb-2 pr-3">Target</th>
+                <th className="pb-2 pr-3">
+                  R:R
+                  <Tip text="Risk-to-reward ratio" />
+                </th>
+                <th className="hidden pb-2 lg:table-cell">Consensus</th>
+              </tr>
+            </thead>
+            <tbody>
+              {predictions.map((p, i) => (
+                <tr key={`${p.symbol}-${p.horizon}-${i}`} className="border-b border-slate-800 transition hover:bg-slate-700/30">
+                  <td className="py-2.5 pr-3 font-medium text-white">{p.symbol}</td>
+                  <td className="py-2.5 pr-3">
+                    <span className="rounded-full bg-slate-700 px-2 py-0.5 text-xs text-slate-300">{p.horizon}</span>
+                  </td>
+                  <td className="py-2.5 pr-3"><SignalBadge signal={p.signal} /></td>
+                  <td className="py-2.5 pr-3 text-slate-300">{Math.round(p.confidence * 100)}%</td>
+                  <td className="py-2.5 pr-3 text-slate-300">₹{p.entry_price?.toFixed(2)}</td>
+                  <td className="py-2.5 pr-3 text-red-400">₹{p.stop_loss?.toFixed(2)}</td>
+                  <td className="py-2.5 pr-3 text-green-400">₹{p.target_price?.toFixed(2)}</td>
+                  <td className="py-2.5 pr-3 text-slate-300">{p.risk_reward?.toFixed(1)}</td>
+                  <td className="hidden py-2.5 text-xs lg:table-cell">
+                    <span className={`font-medium ${
+                      p.consensus_direction?.includes("BUY") ? "text-green-400" :
+                      p.consensus_direction?.includes("SELL") ? "text-red-400" : "text-slate-400"
+                    }`}>
+                      {p.consensus_direction}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Dashboard Page ─────────────────────────────────────────────────────────
 export default function DashboardPage() {
   const [overview, setOverview] = useState<Overview | null>(null);
   const [buys, setBuys] = useState<Prediction[]>([]);
@@ -572,6 +689,13 @@ export default function DashboardPage() {
   const [scanStocksTotal, setScanStocksTotal] = useState(0);
   const [schedulerOn, setSchedulerOn] = useState(false);
 
+  // Intraday state
+  const [intradayPreds, setIntradayPreds] = useState<IntradayPrediction[]>([]);
+  const [intradayScanning, setIntradayScanning] = useState(false);
+  const [intradayScanMsg, setIntradayScanMsg] = useState("");
+  const [intradayScanProgress, setIntradayScanProgress] = useState(0);
+  const [intradayScanStep, setIntradayScanStep] = useState("");
+
   const load = async () => {
     try {
       setLoading(true);
@@ -588,6 +712,9 @@ export default function DashboardPage() {
 
       api.getMetaStrategy().then(setMeta).catch(() => {});
       api.getTrainingStatus().then(setTraining).catch(() => {});
+      api.getIntradayPredictions({ min_confidence: 0.3 })
+        .then((preds) => setIntradayPreds(preds.slice(0, 30)))
+        .catch(() => {});
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to load data. Is the backend running?");
     } finally {
@@ -709,6 +836,50 @@ export default function DashboardPage() {
         } catch { /* ignore */ }
       }, 5000);
     } catch { setRetraining(false); }
+  };
+
+  const startIntradayPoll = () => {
+    const poll = setInterval(async () => {
+      try {
+        const status = await api.getIntradayScanStatus();
+        setIntradayScanProgress(status.progress ?? 0);
+        setIntradayScanStep(status.current_step ?? "");
+        if (!status.running) {
+          clearInterval(poll);
+          if (status.error) {
+            setIntradayScanMsg(`Intraday scan failed: ${status.error}`);
+            setIntradayScanProgress(0);
+          } else {
+            setIntradayScanMsg("");
+            setIntradayScanProgress(100);
+            // Refresh intraday predictions
+            api.getIntradayPredictions({ min_confidence: 0.3 })
+              .then((preds) => setIntradayPreds(preds.slice(0, 30)))
+              .catch(() => {});
+          }
+          setIntradayScanning(false);
+        } else {
+          setIntradayScanMsg(status.current_step || "Intraday scan in progress…");
+        }
+      } catch {
+        clearInterval(poll);
+        setIntradayScanning(false);
+        setIntradayScanMsg("");
+      }
+    }, 3000);
+  };
+
+  const handleIntradayScan = async () => {
+    setIntradayScanning(true);
+    setIntradayScanMsg("Starting intraday scan…");
+    setIntradayScanProgress(0);
+    try {
+      await api.triggerIntradayScan(true);
+      startIntradayPoll();
+    } catch {
+      setIntradayScanMsg("Failed to start intraday scan.");
+      setIntradayScanning(false);
+    }
   };
 
   // Loading skeleton
@@ -858,6 +1029,16 @@ export default function DashboardPage() {
         predictions={buys}
         title="🟢 Top Buy Opportunities"
         emptyMsg="No buy signals yet. Run a Full Scan to analyze the market."
+      />
+
+      {/* Intraday Predictions */}
+      <IntradayPanel
+        predictions={intradayPreds}
+        onScan={handleIntradayScan}
+        scanning={intradayScanning}
+        scanMsg={intradayScanMsg}
+        scanProgress={intradayScanProgress}
+        scanStep={intradayScanStep}
       />
 
       {/* Top Sells */}
