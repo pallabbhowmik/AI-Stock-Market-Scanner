@@ -44,6 +44,7 @@ TRAIN_TEST_SPLIT = 0.8
 PREDICTION_HORIZON = 1  # days ahead
 WALK_FORWARD_TRAIN_SIZE = 252 * 2  # ~2 years
 WALK_FORWARD_TEST_SIZE = 63  # ~3 months
+MIN_TRAINING_SAMPLES = 150
 LSTM_SEQUENCE_LENGTH = 30
 LSTM_EPOCHS = 50
 LSTM_BATCH_SIZE = 32
@@ -57,13 +58,17 @@ MA_CROSS_SHORT = 20
 MA_CROSS_LONG = 50
 RSI_OVERBOUGHT = 70
 RSI_OVERSOLD = 30
+LONG_ONLY = True
+ML_BUY_THRESHOLD = 0.60
+COMBINED_BUY_THRESHOLD = 0.55
 
 # ─── Backtesting ──────────────────────────────────────────────────────────────
 INITIAL_CAPITAL = 1_000_000  # INR
-TRANSACTION_COST_PCT = 0.001  # 0.1% (brokerage + taxes)
-SLIPPAGE_PCT = 0.0005
-STOP_LOSS_PCT = 0.03  # 3%
-TAKE_PROFIT_PCT = 0.06  # 6%
+TRANSACTION_COST_PCT = 0.0025  # 0.25% estimated trading friction
+SLIPPAGE_PCT = 0.0015
+STOP_LOSS_PCT = 0.025  # 2.5%
+TAKE_PROFIT_PCT = 0.05  # 5%
+ALLOW_SAME_BAR_EXIT = False
 
 # ─── Portfolio Management ─────────────────────────────────────────────────────
 RISK_PER_TRADE_PCT = 0.02  # 2% max risk per trade
@@ -78,7 +83,7 @@ EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD", "")
 EMAIL_RECEIVER = os.environ.get("EMAIL_RECEIVER", "")
 EMAIL_SMTP_SERVER = "smtp.gmail.com"
 EMAIL_SMTP_PORT = 587
-ALERT_CONFIDENCE_THRESHOLD = 0.65  # min probability to trigger alert
+ALERT_CONFIDENCE_THRESHOLD = 0.70  # min probability to trigger alert
 
 # ─── Dashboard ────────────────────────────────────────────────────────────────
 DASHBOARD_PORT = 8501

@@ -73,11 +73,11 @@ def run_model_training(tickers=None):
         featured = compute_all_features(df)
         X, y_dir, y_ret, dates, feat_cols = prepare_ml_dataset(featured)
 
-        if len(X) < 100:
+        if len(X) < config.MIN_TRAINING_SAMPLES:
             logger.warning("Insufficient data for %s (%d samples), skipping", ticker, len(X))
             continue
 
-        results = train_all_models(X, y_dir, feat_cols, ticker=ticker)
+        results = train_all_models(X, y_dir, feat_cols, ticker=ticker, y_return=y_ret)
         all_results[ticker] = results
 
         # Print comparison
@@ -85,7 +85,13 @@ def run_model_training(tickers=None):
         print(f"  {ticker} Model Results")
         print(f"{'─' * 50}")
         for name, res in results.items():
-            print(f"  {name:20s} | Acc: {res['accuracy']:.4f} | AUC: {res.get('auc_roc', 0):.4f}")
+            wf = res.get("walk_forward", {})
+            print(
+                f"  {name:20s} | Acc: {res['accuracy']:.4f} | "
+                f"WF Ret: {wf.get('strategy_return', 0):.4f} | "
+                f"WF MaxDD: {wf.get('max_drawdown', 0):.4f} | "
+                f"Trades: {wf.get('trade_count', 0)}"
+            )
 
     return all_results
 

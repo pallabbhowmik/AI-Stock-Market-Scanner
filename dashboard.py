@@ -303,7 +303,9 @@ elif page == "Model Training":
 
             progress = st.progress(0)
             with st.spinner("Training models..."):
-                results = train_all_models(X, y_dir, feat_cols, ticker=selected_ticker)
+                results = train_all_models(
+                    X, y_dir, feat_cols, ticker=selected_ticker, y_return=y_ret
+                )
             progress.progress(100)
 
             st.success("Training complete!")
@@ -312,20 +314,21 @@ elif page == "Model Training":
             st.markdown("### Model Comparison")
             comparison = []
             for name, res in results.items():
+                wf = res.get("walk_forward", {})
                 comparison.append({
                     "Model": name,
                     "Accuracy": f"{res['accuracy']:.4f}",
-                    "Precision": f"{res.get('precision', 0):.4f}",
-                    "Recall": f"{res.get('recall', 0):.4f}",
-                    "F1 Score": f"{res.get('f1', 0):.4f}",
                     "AUC-ROC": f"{res.get('auc_roc', 0):.4f}",
+                    "WF Return": f"{wf.get('strategy_return', 0):.2%}",
+                    "WF Max DD": f"{wf.get('max_drawdown', 0):.2%}",
+                    "WF Trades": wf.get("trade_count", 0),
                 })
             st.table(pd.DataFrame(comparison).set_index("Model"))
 
-            # Feature importance (for tree models)
+            # Feature importance (for the best saved tree model)
             best_name = max(
                 [k for k in results if results[k].get("model") is not None and k != "LSTM"],
-                key=lambda k: results[k].get("auc_roc", 0),
+                key=lambda k: results[k].get("walk_forward", {}).get("selection_score", float("-inf")),
                 default=None,
             )
             if best_name and hasattr(results[best_name]["model"], "feature_importances_"):
@@ -353,7 +356,7 @@ elif page == "Model Training":
                     "Date": df.loc[X_latest.tail(10).index, "date"].values,
                     "Close": df.loc[X_latest.tail(10).index, "close"].values,
                     "Up Probability": probs,
-                    "Signal": ["BUY" if p > 0.5 else "SELL" for p in probs],
+                    "Signal": ["BUY" if p >= config.ML_BUY_THRESHOLD else "HOLD" for p in probs],
                 })
                 st.dataframe(pred_df, use_container_width=True)
         except FileNotFoundError:
@@ -423,6 +426,10 @@ elif page == "Backtesting":
                 metric_cols2 = st.columns(4)
                 for i, (key, val) in enumerate(metrics_list[4:8]):
                     metric_cols2[i].metric(key, val)
+
+                metric_cols3 = st.columns(2)
+                for i, (key, val) in enumerate(metrics_list[8:10]):
+                    metric_cols3[i].metric(key, val)
 
                 # Equity curve
                 if result.equity_curve is not None and len(result.equity_curve) > 0:

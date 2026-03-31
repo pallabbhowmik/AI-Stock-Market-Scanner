@@ -3,8 +3,8 @@ Model Training Module
 Trains, evaluates and compares multiple ML models for stock prediction.
 Supports: Random Forest, XGBoost, Gradient Boosting, LSTM.
 """
-import os
 import logging
+import os
 import pickle
 from typing import Optional
 
@@ -15,13 +15,68 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.metrics import (
     accuracy_score, precision_score, recall_score, f1_score,
-    classification_report, roc_auc_score,
+    roc_auc_score,
 )
 import xgboost as xgb
 
 import config
 
 logger = logging.getLogger(__name__)
+
+
+def _probabilities_to_long_only_signals(probabilities: np.ndarray) -> np.ndarray:
+    """Convert probabilities to long-only signals using a high-confidence threshold."""
+    return (probabilities >= config.ML_BUY_THRESHOLD).astype(int)
+
+
+def _compute_trading_metrics(probabilities: np.ndarray, y_return: np.ndarray) -> dict:
+    """Evaluate long-only trading outcomes from model probabilities."""
+    probabilities = np.asarray(probabilities)
+    y_return = np.asarray(y_return)
+    n = min(len(probabilities), len(y_return))
+    probabilities = probabilities[:n]
+    y_return = y_return[:n]
+
+    signals = _probabilities_to_long_only_signals(probabilities)
+    realized_returns = signals * y_return
+    trade_returns = realized_returns[signals == 1]
+
+    equity_curve = np.cumprod(1 + realized_returns) if len(realized_returns) else np.array([1.0])
+    running_peak = np.maximum.accumulate(equity_curve)
+    drawdown = (equity_curve - running_peak) / running_peak
+
+    gains = trade_returns[trade_returns > 0].sum() if len(trade_returns) else 0.0
+    losses = abs(trade_returns[trade_returns < 0].sum()) if len(trade_returns) else 0.0
+    profit_factor = (gains / losses) if losses > 0 else (float("inf") if gains > 0 else 0.0)
+
+    return {
+        "trade_count": int(signals.sum()),
+        "trade_rate": float(signals.mean()) if len(signals) else 0.0,
+        "strategy_return": float(realized_returns.sum()),
+        "avg_trade_return": float(trade_returns.mean()) if len(trade_returns) else 0.0,
+        "win_rate": float((trade_returns > 0).mean()) if len(trade_returns) else 0.0,
+        "profit_factor": float(profit_factor),
+        "max_drawdown": float(drawdown.min()) if len(drawdown) else 0.0,
+        "expectancy": float(trade_returns.mean()) if len(trade_returns) else 0.0,
+    }
+
+
+def _score_trading_metrics(metrics: dict) -> float:
+    """Profit-focused composite score for model selection."""
+    if metrics.get("trade_count", 0) == 0:
+        return float("-inf")
+
+    profit_factor = metrics.get("profit_factor", 0.0)
+    if np.isinf(profit_factor):
+        profit_factor = 5.0
+
+    return (
+        metrics.get("strategy_return", 0.0) * 4.0
+        + metrics.get("expectancy", 0.0) * 100.0
+        + profit_factor * 0.2
+        + metrics.get("win_rate", 0.0) * 0.5
+        + metrics.get("max_drawdown", 0.0) * 2.0
+    )
 
 # ─── Utility ──────────────────────────────────────────────────────────────────
 
@@ -105,7 +160,7 @@ def train_xgboost(X_train, y_train, X_test, y_test) -> dict:
         eval_metric="logloss",
         random_state=42,
     )
-    model.fit(X_train, y_train, eval_set=[(X_test, y_test)], verbose=False)
+    model.fit(X_train, y_train, verbose=False)
     y_pred = model.predict(X_test)
     y_prob = model.predict_proba(X_test)[:, 1]
     metrics = _compute_metrics(y_test, y_pred, y_prob)
@@ -257,13 +312,83 @@ def walk_forward_test(model_fn, X, y, train_size: int, test_size: int) -> dict:
     return overall
 
 
+def walk_forward_profit_test(model_fn, X, y_direction, y_return, train_size: int, test_size: int) -> dict:
+    """Walk-forward validation scored on long-only realized returns."""
+    all_preds, all_true, all_probs, all_returns = [], [], [], []
+    n = len(X)
+    start = 0
+
+    while start + train_size + test_size <= n:
+        train_end = start + train_size
+        test_end = train_end + test_size
+
+        X_tr, y_tr = X[start:train_end], y_direction[start:train_end]
+        X_te = X[train_end:test_end]
+        y_te = y_direction[train_end:test_end]
+        y_ret_te = y_return[train_end:test_end]
+
+        scaler = StandardScaler()
+        X_tr = scaler.fit_transform(X_tr)
+        X_te = scaler.transform(X_te)
+
+        metrics = model_fn(X_tr, y_tr, X_te, y_te)
+        if "probabilities" not in metrics:
+            start += test_size
+            continue
+
+        all_preds.extend(metrics["predictions"])
+        all_true.extend(y_te)
+        all_probs.extend(metrics["probabilities"])
+        all_returns.extend(y_ret_te)
+        start += test_size
+
+    if not all_probs:
+        return {
+            "name": f"WalkForward_{model_fn.__name__}",
+            "accuracy": 0.0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "auc_roc": 0.0,
+            "strategy_return": 0.0,
+            "avg_trade_return": 0.0,
+            "win_rate": 0.0,
+            "profit_factor": 0.0,
+            "max_drawdown": 0.0,
+            "trade_count": 0,
+            "trade_rate": 0.0,
+            "expectancy": 0.0,
+            "selection_score": float("-inf"),
+        }
+
+    all_preds = np.array(all_preds)
+    all_true = np.array(all_true)
+    all_probs = np.array(all_probs)
+    all_returns = np.array(all_returns)
+    overall = _compute_metrics(all_true, all_preds, all_probs)
+    trading_metrics = _compute_trading_metrics(all_probs, all_returns)
+    overall.update(trading_metrics)
+    overall["name"] = f"WalkForward_{model_fn.__name__}"
+    overall["selection_score"] = _score_trading_metrics(overall)
+    return overall
+
+
 # ─── Train All Models ─────────────────────────────────────────────────────────
 
-def train_all_models(X, y_direction, feature_cols, ticker: str = "ALL") -> dict:
+def train_all_models(X, y_direction, feature_cols, ticker: str = "ALL", y_return=None) -> dict:
     """Train all models, evaluate, and save the best one."""
+    if len(X) < config.MIN_TRAINING_SAMPLES:
+        raise ValueError(
+            f"Need at least {config.MIN_TRAINING_SAMPLES} samples, got {len(X)}."
+        )
+
+    if y_return is None:
+        y_return = np.zeros(len(y_direction), dtype=float)
+
     split = int(len(X) * config.TRAIN_TEST_SPLIT)
     X_train, X_test = X[:split], X[split:]
     y_train, y_test = y_direction[:split], y_direction[split:]
+    y_return_test = y_return[split:]
 
     scaler = StandardScaler()
     X_train_scaled = scaler.fit_transform(X_train)
@@ -279,25 +404,58 @@ def train_all_models(X, y_direction, feature_cols, ticker: str = "ALL") -> dict:
     for name, fn in model_fns.items():
         logger.info("Training %s...", name)
         res = fn(X_train_scaled, y_train, X_test_scaled, y_test)
+        res.update(_compute_trading_metrics(res["probabilities"], y_return_test))
+        res["selection_score"] = _score_trading_metrics(res)
+        walk_forward = walk_forward_profit_test(
+            fn,
+            X,
+            y_direction,
+            y_return,
+            train_size=config.WALK_FORWARD_TRAIN_SIZE,
+            test_size=config.WALK_FORWARD_TEST_SIZE,
+        )
+        res["walk_forward"] = walk_forward
         results[name] = res
-        logger.info("%s - Accuracy: %.4f, AUC: %.4f", name, res["accuracy"], res.get("auc_roc", 0))
+        logger.info(
+            "%s - Accuracy: %.4f, AUC: %.4f, WF Return: %.4f, WF MaxDD: %.4f, Trades: %d",
+            name,
+            res["accuracy"],
+            res.get("auc_roc", 0),
+            walk_forward.get("strategy_return", 0.0),
+            walk_forward.get("max_drawdown", 0.0),
+            walk_forward.get("trade_count", 0),
+        )
 
     # LSTM
     try:
         logger.info("Training LSTM...")
         lstm_res = train_lstm(X_train_scaled, y_train, X_test_scaled, y_test)
+        if lstm_res.get("model") is not None:
+            lstm_res.update(_compute_trading_metrics(lstm_res["probabilities"], y_return_test))
+            lstm_res["selection_score"] = _score_trading_metrics(lstm_res)
         results["LSTM"] = lstm_res
         logger.info("LSTM - Accuracy: %.4f, AUC: %.4f", lstm_res["accuracy"], lstm_res.get("auc_roc", 0))
     except Exception as e:
         logger.warning("LSTM training failed: %s", e)
 
-    # Find best model by AUC
+    # Find best model by walk-forward trading score first, with in-sample trading score as fallback.
     best_name = max(
         [k for k in results if results[k].get("model") is not None],
-        key=lambda k: results[k].get("auc_roc", 0),
+        key=lambda k: (
+            results[k].get("walk_forward", {}).get("selection_score", float("-inf")),
+            results[k].get("selection_score", float("-inf")),
+            results[k].get("auc_roc", 0),
+        ),
     )
     best = results[best_name]
-    logger.info("Best model: %s (AUC: %.4f)", best_name, best.get("auc_roc", 0))
+    best_walk_forward = best.get("walk_forward", {})
+    logger.info(
+        "Best model: %s (WF Return: %.4f, WF MaxDD: %.4f, WF Trades: %d)",
+        best_name,
+        best_walk_forward.get("strategy_return", 0.0),
+        best_walk_forward.get("max_drawdown", 0.0),
+        best_walk_forward.get("trade_count", 0),
+    )
 
     # Save the best sklearn-type model
     if best_name != "LSTM":
@@ -319,7 +477,7 @@ def predict(ticker: str, X_new: np.ndarray, model_name: Optional[str] = None) ->
     model, scaler, features = load_model(model_name)
     X_scaled = scaler.transform(X_new)
     probabilities = model.predict_proba(X_scaled)[:, 1]
-    directions = (probabilities > 0.5).astype(int)
+    directions = _probabilities_to_long_only_signals(probabilities)
 
     return {
         "direction": directions,
