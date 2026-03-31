@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api, Overview, Prediction, MetaStrategyStatus, TrainingStatus } from "@/lib/api";
 import {
   TrendingUp,
@@ -571,32 +571,42 @@ export default function DashboardPage() {
   const [scanStocksProcessed, setScanStocksProcessed] = useState(0);
   const [scanStocksTotal, setScanStocksTotal] = useState(0);
   const [schedulerOn, setSchedulerOn] = useState(false);
+  const scanPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const trainingPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const load = async () => {
+  const stopScanPoll = useCallback(() => {
+    if (scanPollRef.current) {
+      clearInterval(scanPollRef.current);
+      scanPollRef.current = null;
+    }
+  }, []);
+
+  const stopTrainingPoll = useCallback(() => {
+    if (trainingPollRef.current) {
+      clearInterval(trainingPollRef.current);
+      trainingPollRef.current = null;
+    }
+  }, []);
+
+  const load = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-      const [ov, buyList, sellList] = await Promise.all([
-        api.getOverview(),
-        api.getPredictions("BUY"),
-        api.getPredictions("SELL"),
-      ]);
-      setOverview(ov);
-      setBuys(buyList.slice(0, 20));
-      setSells(sellList.slice(0, 10));
-      setSchedulerOn(ov.scheduler?.running ?? false);
-
-      api.getMetaStrategy().then(setMeta).catch(() => {});
-      api.getTrainingStatus().then(setTraining).catch(() => {});
+      const dashboard = await api.getDashboard();
+      setOverview(dashboard.overview);
+      setBuys(dashboard.buys);
+      setSells(dashboard.sells);
+      setMeta(dashboard.meta);
+      setTraining(dashboard.training);
+      setSchedulerOn(dashboard.overview.scheduler?.running ?? false);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to load data. Is the backend running?");
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    // On mount: load data, and check if a scan is already running
     load();
     api.getScanStatus().then((status) => {
       if (status.running) {
@@ -609,11 +619,15 @@ export default function DashboardPage() {
         startScanPoll("Scan");
       }
     }).catch(() => {});
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    return () => {
+      stopScanPoll();
+      stopTrainingPoll();
+    };
+  }, [load, stopScanPoll, stopTrainingPoll]);
 
-  const startScanPoll = (label: string) => {
-    const poll = setInterval(async () => {
+  const startScanPoll = useCallback((label: string) => {
+    stopScanPoll();
+    scanPollRef.current = setInterval(async () => {
       try {
         const status = await api.getScanStatus();
         setScanProgress(status.progress ?? 0);
@@ -621,7 +635,7 @@ export default function DashboardPage() {
         setScanStocksProcessed(status.stocks_processed ?? 0);
         setScanStocksTotal(status.stocks_total ?? 0);
         if (!status.running) {
-          clearInterval(poll);
+          stopScanPoll();
           if (status.error) {
             setScanMsg(`${label} failed: ${status.error}`);
             setScanProgress(0);
@@ -630,6 +644,7 @@ export default function DashboardPage() {
             setScanMsg(`${label} complete! Refreshing...`);
             setScanProgress(100);
             setScanStep("Complete");
+            api.clearCache();
             await load();
             setTimeout(() => { setScanMsg(""); setScanProgress(0); setScanStep(""); }, 3000);
           }
@@ -639,12 +654,12 @@ export default function DashboardPage() {
         }
       } catch {
         // If API is unreachable, stop polling
-        clearInterval(poll);
+        stopScanPoll();
         setScanning(false);
         setScanMsg("");
       }
     }, 3000);
-  };
+  }, [load, stopScanPoll]);
 
   const handleFullScan = async () => {
     setScanning(true);
@@ -691,6 +706,8 @@ export default function DashboardPage() {
         await api.startScheduler();
         setSchedulerOn(true);
       }
+      api.clearCache();
+      load();
     } catch { /* ignore */ }
   };
 
@@ -698,13 +715,16 @@ export default function DashboardPage() {
     setRetraining(true);
     try {
       await api.triggerTraining();
-      const poll = setInterval(async () => {
+      stopTrainingPoll();
+      trainingPollRef.current = setInterval(async () => {
         try {
           const st = await api.getTrainingStatus();
           setTraining(st);
           if (!st.training_in_progress) {
-            clearInterval(poll);
+            stopTrainingPoll();
             setRetraining(false);
+            api.clearCache();
+            load();
           }
         } catch { /* ignore */ }
       }, 5000);

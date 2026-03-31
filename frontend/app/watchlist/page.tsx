@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { api, WatchlistItem } from "@/lib/api";
 import Link from "next/link";
 import {
@@ -82,6 +82,7 @@ export default function WatchlistPage() {
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("top_buys");
   const [searchQuery, setSearchQuery] = useState("");
+  const deferredSearch = useDeferredValue(searchQuery);
 
   useEffect(() => {
     (async () => {
@@ -144,9 +145,11 @@ export default function WatchlistPage() {
   // Also include any extra categories not in our predefined list
   Object.keys(categories).forEach(k => { if (!cats.includes(k)) cats.push(k); });
 
-  const currentItems = (categories[activeTab] || []).filter(item =>
-    !searchQuery || item.symbol.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const currentItems = useMemo(() => {
+    return (categories[activeTab] || []).filter((item) =>
+      !deferredSearch || item.symbol.toLowerCase().includes(deferredSearch.toLowerCase())
+    );
+  }, [activeTab, categories, deferredSearch]);
 
   const totalStocks = allItems.length;
 
@@ -172,6 +175,14 @@ export default function WatchlistPage() {
             className="rounded-lg border border-slate-700 bg-slate-800 py-2 pl-9 pr-4 text-sm text-white placeholder:text-slate-500 focus:border-accent focus:outline-none w-48"
           />
         </div>
+        {searchQuery && (
+          <button
+            onClick={() => setSearchQuery("")}
+            className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-slate-300 transition hover:bg-slate-700"
+          >
+            Clear search
+          </button>
+        )}
       </div>
 
       {/* Empty state */}

@@ -1,23 +1,74 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const GET_CACHE_TTL_MS = 10_000;
+const REQUEST_TIMEOUT_MS = 15_000;
+const responseCache = new Map<string, { expiresAt: number; value: unknown }>();
+const inflightRequests = new Map<string, Promise<unknown>>();
 
-async function fetchAPI<T>(endpoint: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${endpoint}`, {
+function clearApiCache(prefix?: string) {
+  if (!prefix) {
+    responseCache.clear();
+    inflightRequests.clear();
+    return;
+  }
+  for (const key of Array.from(responseCache.keys())) {
+    if (key.startsWith(prefix)) responseCache.delete(key);
+  }
+  for (const key of Array.from(inflightRequests.keys())) {
+    if (key.startsWith(prefix)) inflightRequests.delete(key);
+  }
+}
+
+async function fetchAPI<T>(endpoint: string, options?: { cacheMs?: number; force?: boolean }): Promise<T> {
+  const url = `${API_BASE}${endpoint}`;
+  const cacheMs = options?.cacheMs ?? GET_CACHE_TTL_MS;
+  const cached = responseCache.get(url);
+  if (!options?.force && cached && cached.expiresAt > Date.now()) {
+    return cached.value as T;
+  }
+  if (!options?.force) {
+    const inflight = inflightRequests.get(url);
+    if (inflight) return inflight as Promise<T>;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  const request = fetch(url, {
     cache: "no-store",
     headers: { "Content-Type": "application/json" },
-  });
-  if (!res.ok) throw new Error(`API error: ${res.status}`);
-  return res.json();
+    signal: controller.signal,
+  })
+    .then(async (res) => {
+      if (!res.ok) throw new Error(`API error: ${res.status}`);
+      const payload = (await res.json()) as T;
+      if (cacheMs > 0) {
+        responseCache.set(url, { expiresAt: Date.now() + cacheMs, value: payload });
+      }
+      return payload;
+    })
+    .finally(() => {
+      clearTimeout(timeout);
+      inflightRequests.delete(url);
+    });
+
+  inflightRequests.set(url, request);
+  return request;
 }
 
 async function postAPI<T>(endpoint: string, body?: unknown): Promise<T> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   const res = await fetch(`${API_BASE}${endpoint}`, {
     method: "POST",
     cache: "no-store",
     headers: { "Content-Type": "application/json" },
     body: body ? JSON.stringify(body) : undefined,
+    signal: controller.signal,
   });
+  clearTimeout(timeout);
   if (!res.ok) throw new Error(`API error: ${res.status}`);
-  return res.json();
+  clearApiCache(`${API_BASE}/api/`);
+  return res.json() as Promise<T>;
 }
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -31,6 +82,14 @@ export interface Overview {
   avg_confidence: number;
   last_scan: Record<string, unknown> | null;
   scheduler: { running: boolean; last_run: string | null; next_run: string | null; market_open: boolean };
+}
+
+export interface DashboardPayload {
+  overview: Overview;
+  buys: Prediction[];
+  sells: Prediction[];
+  meta: MetaStrategyStatus | null;
+  training: TrainingStatus | null;
 }
 
 export interface Prediction {
@@ -279,6 +338,8 @@ export interface PaperPerformance {
 // ─── API Functions ──────────────────────────────────────────────────────────
 
 export const api = {
+  clearCache: () => clearApiCache(`${API_BASE}/api/`),
+  getDashboard: () => fetchAPI<DashboardPayload>("/api/dashboard"),
   getOverview: () => fetchAPI<Overview>("/api/overview"),
   getPredictions: (signal?: string) =>
     fetchAPI<{ predictions: Prediction[]; total: number }>(
@@ -293,9 +354,9 @@ export const api = {
   getStock: (symbol: string) =>
     fetchAPI<StockDetail>(`/api/stocks/${encodeURIComponent(symbol)}`),
   getChart: (symbol: string, days?: number) =>
-    fetchAPI<ChartPoint[]>(
-      `/api/stocks/${encodeURIComponent(symbol)}/chart${days ? `?days=${days}` : ""}`
-    ),
+    fetchAPI<{ symbol: string; data: ChartPoint[] }>(
+      `/api/stocks/${encodeURIComponent(symbol)}/chart${days ? `?period=${days}` : ""}`
+    ).then((r) => r.data),
   getIndicators: (symbol: string) =>
     fetchAPI<Record<string, number>>(
       `/api/stocks/${encodeURIComponent(symbol)}/indicators`

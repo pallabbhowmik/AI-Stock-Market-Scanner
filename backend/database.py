@@ -17,6 +17,37 @@ from backend import config
 
 logger = logging.getLogger(__name__)
 
+_CACHE_TTL_SECONDS = 15
+_query_cache: dict[tuple, tuple[float, object]] = {}
+
+
+def _make_cache_key(namespace: str, *parts) -> tuple:
+    return (namespace,) + parts
+
+
+def _cache_get(namespace: str, *parts):
+    key = _make_cache_key(namespace, *parts)
+    entry = _query_cache.get(key)
+    if not entry:
+        return None
+    expires_at, value = entry
+    if expires_at <= datetime.now().timestamp():
+        _query_cache.pop(key, None)
+        return None
+    return value
+
+
+def _cache_set(namespace: str, value, *parts):
+    key = _make_cache_key(namespace, *parts)
+    _query_cache[key] = (datetime.now().timestamp() + _CACHE_TTL_SECONDS, value)
+    return value
+
+
+def _cache_invalidate(prefixes: set[str]):
+    for key in list(_query_cache.keys()):
+        if key and key[0] in prefixes:
+            _query_cache.pop(key, None)
+
 
 def _sanitize(obj):
     """Replace NaN / Inf with None so JSON serialisation succeeds."""
@@ -249,6 +280,7 @@ def upsert_scanned_stocks(stocks: list[dict]):
         for s in stocks:
             s["last_updated"] = datetime.now().isoformat()
         sb.table("scanned_stocks").upsert(_sanitize(stocks)).execute()
+    _cache_invalidate({"scanned_stocks"})
 
 
 def save_stock_data(df: pd.DataFrame, symbol: str):
@@ -275,6 +307,7 @@ def save_stock_data(df: pd.DataFrame, symbol: str):
             r["symbol"] = symbol
             r["date"] = str(r["date"])
         sb.table("stock_data").upsert(_sanitize(records)).execute()
+    _cache_invalidate({"stock_data"})
 
 
 def save_predictions(predictions: list[dict]):
@@ -319,6 +352,7 @@ def save_predictions(predictions: list[dict]):
                 "explanation": p.get("explanation", ""),
             })
         sb.table("predictions").insert(_sanitize(rows)).execute()
+    _cache_invalidate({"predictions"})
 
 
 def save_watchlist(watchlist: list[dict]):
@@ -358,6 +392,7 @@ def save_watchlist(watchlist: list[dict]):
                 "rank": w.get("rank", 0),
             })
         sb.table("watchlist").insert(_sanitize(rows)).execute()
+    _cache_invalidate({"watchlist"})
 
 
 def save_scan_log(started_at: str, finished_at: str, stocks_scanned: int,
@@ -378,12 +413,16 @@ def save_scan_log(started_at: str, finished_at: str, stocks_scanned: int,
             "stocks_scanned": stocks_scanned, "stocks_passed_filter": stocks_passed,
             "status": status,
         }).execute()
+    _cache_invalidate({"scan_logs"})
 
 
 def get_predictions(date: Optional[str] = None) -> list[dict]:
     """Get predictions for a date (default: today, falls back to most recent)."""
     if date is None:
         date = datetime.now().strftime("%Y-%m-%d")
+    cached = _cache_get("predictions", date)
+    if cached is not None:
+        return cached
     if config.USE_SQLITE:
         conn = _get_sqlite_conn()
         conn.row_factory = sqlite3.Row
@@ -401,7 +440,7 @@ def get_predictions(date: Optional[str] = None) -> list[dict]:
                     (row["date"],)
                 ).fetchall()
         conn.close()
-        return [dict(r) for r in rows]
+        return _cache_set("predictions", [dict(r) for r in rows], date)
     else:
         sb = _get_supabase()
         res = sb.table("predictions").select("*").eq("date", date).order("opportunity_score", desc=True).execute()
@@ -411,13 +450,16 @@ def get_predictions(date: Optional[str] = None) -> list[dict]:
             if latest.data:
                 latest_date = latest.data[0]["date"]
                 res = sb.table("predictions").select("*").eq("date", latest_date).order("opportunity_score", desc=True).execute()
-        return res.data
+        return _cache_set("predictions", res.data, date)
 
 
 def get_watchlist(date: Optional[str] = None, category: Optional[str] = None) -> list[dict]:
     """Get watchlist for a date (falls back to most recent)."""
     if date is None:
         date = datetime.now().strftime("%Y-%m-%d")
+    cached = _cache_get("watchlist", date, category or "")
+    if cached is not None:
+        return cached
     if config.USE_SQLITE:
         conn = _get_sqlite_conn()
         conn.row_factory = sqlite3.Row
@@ -448,7 +490,7 @@ def get_watchlist(date: Optional[str] = None, category: Optional[str] = None) ->
                         (fallback_date,)
                     ).fetchall()
         conn.close()
-        return [dict(r) for r in rows]
+        return _cache_set("watchlist", [dict(r) for r in rows], date, category or "")
     else:
         sb = _get_supabase()
         q = sb.table("watchlist").select("*").eq("date", date)
@@ -463,11 +505,14 @@ def get_watchlist(date: Optional[str] = None, category: Optional[str] = None) ->
                 if category:
                     q = q.eq("category", category)
                 result = q.order("rank").execute()
-        return result.data
+        return _cache_set("watchlist", result.data, date, category or "")
 
 
 def get_stock_data(symbol: str, limit: int = 365) -> pd.DataFrame:
     """Get stored OHLCV data for a symbol."""
+    cached = _cache_get("stock_data", symbol, limit)
+    if cached is not None:
+        return cached.copy()
     if config.USE_SQLITE:
         conn = _get_sqlite_conn()
         df = pd.read_sql_query(
@@ -478,7 +523,7 @@ def get_stock_data(symbol: str, limit: int = 365) -> pd.DataFrame:
         if not df.empty:
             df["date"] = pd.to_datetime(df["date"])
             df = df.sort_values("date").reset_index(drop=True)
-        return df
+        return _cache_set("stock_data", df.copy(), symbol, limit).copy()
     else:
         sb = _get_supabase()
         res = sb.table("stock_data").select("*").eq("symbol", symbol).order("date", desc=True).limit(limit).execute()
@@ -486,11 +531,14 @@ def get_stock_data(symbol: str, limit: int = 365) -> pd.DataFrame:
         if not df.empty:
             df["date"] = pd.to_datetime(df["date"])
             df = df.sort_values("date").reset_index(drop=True)
-        return df
+        return _cache_set("stock_data", df.copy(), symbol, limit).copy()
 
 
 def get_scan_logs(limit: int = 10) -> list[dict]:
     """Get recent scan logs."""
+    cached = _cache_get("scan_logs", limit)
+    if cached is not None:
+        return cached
     if config.USE_SQLITE:
         conn = _get_sqlite_conn()
         conn.row_factory = sqlite3.Row
@@ -498,23 +546,28 @@ def get_scan_logs(limit: int = 10) -> list[dict]:
             "SELECT * FROM scan_log ORDER BY id DESC LIMIT ?", (limit,)
         ).fetchall()
         conn.close()
-        return [dict(r) for r in rows]
+        return _cache_set("scan_logs", [dict(r) for r in rows], limit)
     else:
         sb = _get_supabase()
-        return sb.table("scan_log").select("*").order("id", desc=True).limit(limit).execute().data
+        data = sb.table("scan_log").select("*").order("id", desc=True).limit(limit).execute().data
+        return _cache_set("scan_logs", data, limit)
 
 
 def get_all_scanned_stocks() -> list[dict]:
     """Get the full scanned stocks list."""
+    cached = _cache_get("scanned_stocks", "all")
+    if cached is not None:
+        return cached
     if config.USE_SQLITE:
         conn = _get_sqlite_conn()
         conn.row_factory = sqlite3.Row
         rows = conn.execute("SELECT * FROM scanned_stocks ORDER BY symbol").fetchall()
         conn.close()
-        return [dict(r) for r in rows]
+        return _cache_set("scanned_stocks", [dict(r) for r in rows], "all")
     else:
         sb = _get_supabase()
-        return sb.table("scanned_stocks").select("*").order("symbol").execute().data
+        data = sb.table("scanned_stocks").select("*").order("symbol").execute().data
+        return _cache_set("scanned_stocks", data, "all")
 
 
 def save_meta_strategy_state(regime: str, weights: dict, explanation: str):

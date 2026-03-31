@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useDeferredValue, useEffect, useState, useMemo, useCallback } from "react";
 import { api, Prediction, ChartPoint } from "@/lib/api";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar,
@@ -70,11 +70,13 @@ function StockChart({ symbol }: { symbol: string }) {
   const [chartLoading, setChartLoading] = useState(true);
 
   useEffect(() => {
+    let active = true;
     setChartLoading(true);
     api.getChart(symbol, days)
-      .then(setChart)
-      .catch(() => setChart([]))
-      .finally(() => setChartLoading(false));
+      .then((data) => { if (active) setChart(data); })
+      .catch(() => { if (active) setChart([]); })
+      .finally(() => { if (active) setChartLoading(false); });
+    return () => { active = false; };
   }, [symbol, days]);
 
   if (chartLoading) {
@@ -174,6 +176,7 @@ export default function ExplorerPage() {
   const [filterSignal, setFilterSignal] = useState<string>("ALL");
   const [sortBy, setSortBy] = useState<string>("opportunity_score");
   const [selected, setSelected] = useState<Prediction | null>(null);
+  const deferredSearch = useDeferredValue(search);
 
   useEffect(() => {
     api.getPredictions().then((d) => { setPredictions(d); setLoading(false); }).catch(() => setLoading(false));
@@ -202,11 +205,21 @@ export default function ExplorerPage() {
     return predictions
       .filter((p) => {
         if (filterSignal !== "ALL" && p.signal !== filterSignal) return false;
-        if (search && !p.symbol.toLowerCase().includes(search.toLowerCase())) return false;
+        if (deferredSearch && !p.symbol.toLowerCase().includes(deferredSearch.toLowerCase())) return false;
         return true;
       })
       .sort(sortFn);
-  }, [predictions, filterSignal, search, sortFn]);
+  }, [predictions, filterSignal, deferredSearch, sortFn]);
+
+  useEffect(() => {
+    if (!filtered.length) {
+      setSelected(null);
+      return;
+    }
+    if (!selected || !filtered.some((item) => item.symbol === selected.symbol)) {
+      setSelected(filtered[0]);
+    }
+  }, [filtered, selected]);
 
   if (loading) {
     return (
@@ -241,6 +254,14 @@ export default function ExplorerPage() {
             className="rounded-lg border border-slate-600 bg-slate-800 py-2 pl-9 pr-4 text-sm text-white placeholder-slate-500 outline-none focus:border-accent w-48"
           />
         </div>
+        {search && (
+          <button
+            onClick={() => setSearch("")}
+            className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-slate-300 transition hover:bg-slate-700"
+          >
+            Clear search
+          </button>
+        )}
         <div className="flex gap-1">
           {["ALL", "BUY", "SELL", "HOLD"].map((s) => (
             <button

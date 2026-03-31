@@ -85,22 +85,18 @@ async def health():
     return {"status": "ok", "timestamp": datetime.now().isoformat()}
 
 
-# ─── Market Overview ─────────────────────────────────────────────────────────
-
-@app.get("/api/overview")
-async def market_overview():
-    """Get market overview: counts, latest scan info, summary stats."""
-    stocks = database.get_all_scanned_stocks()
-    predictions = database.get_predictions()
-    logs = database.get_scan_logs(limit=1)
-
+def _build_overview_payload(
+    stocks: list[dict],
+    predictions: list[dict],
+    logs: list[dict],
+) -> dict:
     buy_count = sum(1 for p in predictions if p.get("signal") == "BUY")
     sell_count = sum(1 for p in predictions if p.get("signal") == "SELL")
     hold_count = sum(1 for p in predictions if p.get("signal") == "HOLD")
-
-    avg_confidence = 0
-    if predictions:
-        avg_confidence = sum(p.get("confidence", 0) for p in predictions) / len(predictions)
+    avg_confidence = (
+        sum(p.get("confidence", 0) for p in predictions) / len(predictions)
+        if predictions else 0
+    )
 
     return {
         "total_stocks": len(stocks),
@@ -111,6 +107,61 @@ async def market_overview():
         "avg_confidence": round(avg_confidence, 4),
         "last_scan": logs[0] if logs else None,
         "scheduler": get_scheduler_status(),
+    }
+
+
+# ─── Market Overview ─────────────────────────────────────────────────────────
+
+@app.get("/api/overview")
+async def market_overview():
+    """Get market overview: counts, latest scan info, summary stats."""
+    stocks = database.get_all_scanned_stocks()
+    predictions = database.get_predictions()
+    logs = database.get_scan_logs(limit=1)
+    return _build_overview_payload(stocks, predictions, logs)
+
+
+@app.get("/api/dashboard")
+async def dashboard_data(
+    buy_limit: int = Query(default=20, ge=1, le=100),
+    sell_limit: int = Query(default=10, ge=1, le=100),
+):
+    """Get the dashboard payload in one request for faster page loads."""
+    stocks = database.get_all_scanned_stocks()
+    predictions = database.get_predictions()
+    logs = database.get_scan_logs(limit=1)
+
+    try:
+        from backend.market_regime import detect_regime
+        from backend.meta_strategy import get_strategy_status
+
+        regime_info = detect_regime()
+        meta = get_strategy_status(regime_info.get("regime", "SIDEWAYS"))
+        meta["regime_confidence"] = regime_info.get("confidence", 0.5)
+        saved = database.get_meta_strategy_state()
+        if saved:
+            meta["last_updated"] = saved.get("date")
+    except Exception as exc:
+        logger.warning("Dashboard meta-strategy load failed: %s", exc)
+        meta = None
+
+    try:
+        from backend.training_pipeline import get_pipeline_status
+
+        training = get_pipeline_status()
+    except Exception as exc:
+        logger.warning("Dashboard training status load failed: %s", exc)
+        training = None
+
+    buys = [p for p in predictions if p.get("signal") == "BUY"][:buy_limit]
+    sells = [p for p in predictions if p.get("signal") == "SELL"][:sell_limit]
+
+    return {
+        "overview": _build_overview_payload(stocks, predictions, logs),
+        "buys": buys,
+        "sells": sells,
+        "meta": meta,
+        "training": training,
     }
 
 
