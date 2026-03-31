@@ -51,6 +51,8 @@ app = FastAPI(
     version="1.0.0",
 )
 
+import traceback
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=config.CORS_ORIGINS,
@@ -58,6 +60,16 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+from fastapi.responses import JSONResponse
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request, exc):
+    logger.error(f"Global exception: {exc}\n{traceback.format_exc()}")
+    return JSONResponse(
+        status_code=500,
+        content={"error": str(exc), "traceback": traceback.format_exc()}
+    )
 
 
 @app.on_event("startup")

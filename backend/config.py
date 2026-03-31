@@ -99,8 +99,11 @@ MARKET_CLOSE_MINUTE = 30
 # ─── API ──────────────────────────────────────────────────────────────────────
 API_HOST = "0.0.0.0"
 API_PORT = int(os.getenv("PORT", "8000"))
-_cors_raw = os.getenv("CORS_ORIGINS", "http://localhost:3000")
+_cors_raw = os.getenv("CORS_ORIGINS", "http://localhost:3000,https://stockprediction-pi.vercel.app")
 CORS_ORIGINS = [o.strip() for o in _cors_raw.split(",") if o.strip()]
+# Ensure Vercel frontend is always allowed
+if "https://stockprediction-pi.vercel.app" not in CORS_ORIGINS:
+    CORS_ORIGINS.append("https://stockprediction-pi.vercel.app")
 
 # ─── Intraday Trading ──────────────────────────────────────────────────────────
 INTRADAY_INTERVALS = ["5m", "15m"]         # candle intervals to fetch
