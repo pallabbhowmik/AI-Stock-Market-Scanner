@@ -42,6 +42,7 @@ class BacktestResult:
     total_trades: int = 0
     avg_trade_return: float = 0.0
     max_consecutive_losses: int = 0
+    expectancy: float = 0.0
 
     def summary(self) -> dict:
         return {
@@ -53,6 +54,7 @@ class BacktestResult:
             "Profit Factor": f"{self.profit_factor:.4f}",
             "Total Trades": self.total_trades,
             "Avg Trade Return": f"{self.avg_trade_return:.2%}",
+            "Expectancy": f"{self.expectancy:.2%}",
             "Max Consecutive Losses": self.max_consecutive_losses,
         }
 
@@ -94,13 +96,47 @@ class BacktestEngine:
         entry_date = ""
         trades = []
         equity = []
+        pending_order = None
 
         for i in range(len(df)):
             date = df.iloc[i]["date"] if isinstance(df.iloc[i]["date"], str) else str(df.iloc[i]["date"])
+            open_price = df.iloc[i]["open"]
             close = df.iloc[i]["close"]
             high = df.iloc[i]["high"]
             low = df.iloc[i]["low"]
             signal = signals.iloc[i] if i < len(signals) else 0
+
+            if config.LONG_ONLY and signal < 0:
+                signal = 0
+
+            # Execute orders on the next bar open to avoid same-bar lookahead fills.
+            if pending_order == "buy" and position == 0:
+                adjusted_price = open_price * (1 + self.slippage)
+                risk_amount = cash * self.risk_per_trade
+                shares = int(risk_amount / (adjusted_price * self.stop_loss))
+                shares = max(1, min(shares, int(cash / (adjusted_price * (1 + self.transaction_cost)))))
+
+                cost_total = adjusted_price * shares * (1 + self.transaction_cost)
+                if shares > 0 and cost_total <= cash:
+                    cash -= cost_total
+                    position = shares
+                    entry_price = adjusted_price
+                    entry_date = date
+                pending_order = None
+            elif pending_order == "sell" and position > 0:
+                exit_price = open_price * (1 - self.slippage)
+                pnl = (exit_price - entry_price) * position
+                cost = exit_price * position * self.transaction_cost
+                cash += exit_price * position - cost
+                trades.append(Trade(
+                    ticker=ticker, entry_date=entry_date, entry_price=entry_price,
+                    direction=1, shares=position, exit_date=date,
+                    exit_price=exit_price, pnl=pnl - cost,
+                    return_pct=(exit_price / entry_price) - 1,
+                    exit_reason="signal",
+                ))
+                position = 0
+                pending_order = None
 
             # Check stop loss / take profit for open positions
             if position > 0:
@@ -119,6 +155,7 @@ class BacktestEngine:
                         exit_reason="stop_loss",
                     ))
                     position = 0
+                    pending_order = None
 
                 # Check take profit
                 elif high >= entry_price * (1 + self.take_profit):
@@ -135,36 +172,13 @@ class BacktestEngine:
                         exit_reason="take_profit",
                     ))
                     position = 0
+                    pending_order = None
 
             # Process signals
             if signal == 1 and position == 0:
-                # Buy signal
-                risk_amount = cash * self.risk_per_trade
-                adjusted_price = close * (1 + self.slippage)
-                shares = int(risk_amount / (adjusted_price * self.stop_loss))
-                shares = max(1, min(shares, int(cash / adjusted_price)))
-
-                cost_total = adjusted_price * shares * (1 + self.transaction_cost)
-                if cost_total <= cash:
-                    cash -= cost_total
-                    position = shares
-                    entry_price = adjusted_price
-                    entry_date = date
-
+                pending_order = "buy"
             elif signal == -1 and position > 0:
-                # Sell signal
-                exit_price = close * (1 - self.slippage)
-                pnl = (exit_price - entry_price) * position
-                cost = exit_price * position * self.transaction_cost
-                cash += exit_price * position - cost
-                trades.append(Trade(
-                    ticker=ticker, entry_date=entry_date, entry_price=entry_price,
-                    direction=1, shares=position, exit_date=date,
-                    exit_price=exit_price, pnl=pnl - cost,
-                    return_pct=(exit_price / entry_price) - 1,
-                    exit_reason="signal",
-                ))
-                position = 0
+                pending_order = "sell"
 
             # Record equity
             portfolio_value = cash + (position * close)
@@ -200,6 +214,7 @@ class BacktestEngine:
             result.total_return = (equity_series.iloc[-1] / self.initial_capital) - 1
             result.win_rate = sum(1 for r in returns if r > 0) / len(returns)
             result.avg_trade_return = np.mean(returns)
+            result.expectancy = np.mean(returns)
 
             # Profit factor
             gross_profit = sum(t.pnl for t in trades if t.pnl > 0)

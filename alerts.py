@@ -117,17 +117,17 @@ def check_and_send_alerts(
         price = row.get("close", 0)
         strategy = row.get("strategy", "Combined")
 
-        if signal == 0:
+        if signal != 1:
             continue
 
         prob = probabilities.get(ticker, 0.5) if probabilities else 0.5
-        if abs(signal) == 1 and prob >= config.ALERT_CONFIDENCE_THRESHOLD:
+        if prob >= config.ALERT_CONFIDENCE_THRESHOLD:
             message = format_signal_alert(ticker, signal, prob, price, strategy)
 
             if via_telegram:
                 send_telegram_alert(message)
             if via_email:
-                subject = f"Stock Alert: {ticker} - {'BUY' if signal == 1 else 'SELL'}"
+                subject = f"Stock Alert: {ticker} - BUY"
                 send_email_alert(subject, message)
 
             alerts_sent.append(message)
