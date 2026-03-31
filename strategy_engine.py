@@ -146,10 +146,10 @@ class CombinedStrategy(Strategy):
             signals = strategy.generate_signals(df)
             combined += signals * weight
 
-        # Threshold the combined signal
+        # Threshold the combined signal (raised from 0.3 for fewer false signals)
         final = pd.Series(0, index=df.index)
-        final[combined > 0.3] = 1
-        final[combined < -0.3] = -1
+        final[combined > 0.4] = 1
+        final[combined < -0.4] = -1
         return final
 
 
@@ -220,12 +220,17 @@ def get_all_signals(df: pd.DataFrame) -> pd.DataFrame:
             logger.warning("Strategy %s failed: %s", strategy.name, e)
             signal_df[strategy.name] = 0
 
-    # Overall consensus
+    # Supertrend signal (if available)
+    if "supertrend_dir" in df.columns:
+        signal_df["Supertrend"] = df["supertrend_dir"].fillna(0).astype(int)
+        strategies.append(type("FakeStrategy", (), {"name": "Supertrend"})())
+
+    # Overall consensus (raised threshold from 0.25 to 0.40 for higher quality)
     strategy_cols = [s.name for s in strategies]
     signal_df["consensus"] = signal_df[strategy_cols].mean(axis=1)
     signal_df["signal"] = 0
-    signal_df.loc[signal_df["consensus"] > 0.25, "signal"] = 1
-    signal_df.loc[signal_df["consensus"] < -0.25, "signal"] = -1
+    signal_df.loc[signal_df["consensus"] > 0.40, "signal"] = 1
+    signal_df.loc[signal_df["consensus"] < -0.40, "signal"] = -1
 
     return signal_df
 

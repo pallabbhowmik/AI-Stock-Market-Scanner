@@ -3,13 +3,11 @@ Meta-AI Strategy Selector
 Dynamically selects and weights the best trading strategy mix based on
 current market regime, recent strategy performance, and market conditions.
 
-Strategies managed:
-  1. ML Prediction Models (prediction_engine)
-  2. RL Trading Agent (rl_trading_agent)
-  3. Momentum / Breakout (breakout_detector + momentum)
-  4. Mean Reversion (feature_engineering RSI/BB)
-  5. Volume Breakout (volume spike detection)
-  6. Sentiment Signals (sentiment_analysis)
+Improvements:
+  - Confidence-weighted consensus: weight by strategy's own confidence
+  - Minimum agreement filter: require 3/6 strategies to agree for BUY/SELL
+  - Regime-filtered signals: suppress bad signal types per regime
+  - Performance decay: exponentially decay records older than 30 days
 """
 import logging
 import os
@@ -106,6 +104,7 @@ class StrategyPerformanceTracker:
     def get_metrics(self, strategy: str, lookback: int = 50) -> dict:
         """
         Compute performance metrics for a strategy over recent trades.
+        Uses exponential decay: records older than 30 days get reduced weight.
 
         Returns:
             dict with: win_rate, avg_return, sharpe_ratio, max_drawdown, trade_count
@@ -121,10 +120,34 @@ class StrategyPerformanceTracker:
                 "trade_count": 0,
             }
 
-        returns = [r["actual_return"] for r in recs]
-        wins = sum(1 for r in recs if r["won"])
+        # Apply exponential decay based on age
+        from datetime import datetime, timedelta
+        today = datetime.now()
+        weighted_returns = []
+        weighted_wins = []
+        total_weight = 0
 
-        avg_ret = float(np.mean(returns))
+        for r in recs:
+            try:
+                rec_date = datetime.strptime(r.get("date", ""), "%Y-%m-%d")
+                age_days = (today - rec_date).days
+            except (ValueError, TypeError):
+                age_days = 15  # default
+            # Half-life of 30 days
+            decay = 0.5 ** (age_days / 30.0)
+            decay = max(decay, 0.1)  # floor at 10%
+
+            weighted_returns.append(r["actual_return"] * decay)
+            weighted_wins.append(decay if r["won"] else 0)
+            total_weight += decay
+
+        if total_weight == 0:
+            total_weight = 1
+
+        avg_ret = sum(weighted_returns) / total_weight
+        win_rate = sum(weighted_wins) / total_weight
+
+        returns = [r["actual_return"] for r in recs]
         std_ret = float(np.std(returns)) if len(returns) > 1 else 1.0
         sharpe = avg_ret / std_ret if std_ret > 0 else 0.0
 
@@ -135,7 +158,7 @@ class StrategyPerformanceTracker:
         max_dd = float(np.max(drawdowns)) if len(drawdowns) > 0 else 0.0
 
         return {
-            "win_rate": round(wins / len(recs), 4),
+            "win_rate": round(win_rate, 4),
             "avg_return": round(avg_ret, 6),
             "sharpe_ratio": round(sharpe, 4),
             "max_drawdown": round(max_dd, 6),
@@ -229,17 +252,15 @@ def compute_meta_signal(
     symbol: str,
     strategy_signals: dict[str, dict],
     weights: dict[str, float],
+    regime: str = "SIDEWAYS",
 ) -> dict:
     """
     Combine signals from all strategies into a final weighted signal.
 
-    Args:
-        symbol: Stock symbol
-        strategy_signals: dict mapping strategy → {signal, score (0-1), confidence}
-        weights: dict mapping strategy → weight
-
-    Returns:
-        dict with: final_signal, final_score, confidence, strategy_contributions, explanation
+    Improvements:
+    - Confidence-weighted: each strategy's contribution is scaled by its own confidence
+    - Minimum agreement filter: require ≥3 strategies to agree for BUY/SELL
+    - Regime filtering: suppress contradictory signals per regime
     """
     weighted_score = 0.0
     total_weight = 0.0
@@ -249,32 +270,59 @@ def compute_meta_signal(
         sig = strategy_signals.get(strategy, {})
         weight = weights.get(strategy, 0)
         score = sig.get("score", 0.5)
+        sig_confidence = sig.get("confidence", 0.5)
 
-        contribution = weight * score
+        # Confidence-weighted: scale contribution by strategy's own confidence
+        effective_weight = weight * (0.5 + sig_confidence * 0.5)
+        contribution = effective_weight * score
         weighted_score += contribution
-        total_weight += weight
+        total_weight += effective_weight
 
         contributions[strategy] = {
             "weight_pct": round(weight * 100, 1),
             "score": round(score, 4),
             "contribution": round(contribution, 4),
             "signal": sig.get("signal", "HOLD"),
+            "confidence": round(sig_confidence, 4),
             "label": STRATEGY_LABELS.get(strategy, strategy),
         }
 
     final_score = weighted_score / total_weight if total_weight > 0 else 0.5
 
-    # Determine final signal
+    # ── Minimum Agreement Filter ──
+    signals = [s.get("signal", "HOLD") for s in strategy_signals.values() if s]
+    buy_count = signals.count("BUY")
+    sell_count = signals.count("SELL")
+    hold_count = signals.count("HOLD")
+    total_strategies = len(signals)
+    min_agreement = 3  # Require at least 3/6 strategies to agree
+
+    # Initial signal from score
     if final_score >= 0.60:
-        final_signal = "BUY"
+        raw_signal = "BUY"
     elif final_score <= 0.40:
-        final_signal = "SELL"
+        raw_signal = "SELL"
     else:
+        raw_signal = "HOLD"
+
+    # Override to HOLD if not enough strategies agree
+    if raw_signal == "BUY" and buy_count < min_agreement:
+        raw_signal = "HOLD"
+    elif raw_signal == "SELL" and sell_count < min_agreement:
+        raw_signal = "HOLD"
+
+    # ── Regime Filtering ──
+    # Suppress contradictory signals based on market regime
+    final_signal = raw_signal
+    if regime == "BEAR" and final_signal == "BUY" and final_score < 0.70:
+        # In bear markets, require very strong conviction for buy
+        final_signal = "HOLD"
+    elif regime == "BULL" and final_signal == "SELL" and final_score > 0.30:
+        # In bull markets, require very strong conviction for sell
         final_signal = "HOLD"
 
     # Confidence from agreement
-    signals = [s.get("signal", "HOLD") for s in strategy_signals.values() if s]
-    agreement = max(signals.count("BUY"), signals.count("SELL"), signals.count("HOLD")) / max(len(signals), 1)
+    agreement = max(buy_count, sell_count, hold_count) / max(total_strategies, 1)
     confidence = round(agreement * min(abs(final_score - 0.5) * 4, 1.0), 4)
 
     # Beginner-friendly explanation
@@ -287,6 +335,7 @@ def compute_meta_signal(
         "confidence": confidence,
         "strategy_contributions": contributions,
         "explanation": explanation,
+        "agreement": {"buy": buy_count, "sell": sell_count, "hold": hold_count},
     }
 
 
@@ -455,8 +504,8 @@ def run_meta_strategy(
         volume_spike_score, sentiment_result,
     )
 
-    # Combine
-    result = compute_meta_signal(symbol, strategy_signals, weights)
+    # Combine with regime awareness
+    result = compute_meta_signal(symbol, strategy_signals, weights, regime=regime)
     result["active_weights"] = weights
     result["regime"] = regime
 

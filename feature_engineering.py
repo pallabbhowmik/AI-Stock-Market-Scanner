@@ -134,6 +134,58 @@ def add_momentum_features(df: pd.DataFrame) -> pd.DataFrame:
         high=df["high"], low=df["low"], close=df["close"], lbp=14
     ).williams_r()
 
+    # ADX — trend strength indicator
+    try:
+        adx_ind = ta.trend.ADXIndicator(
+            high=df["high"], low=df["low"], close=df["close"], window=14
+        )
+        df["adx"] = adx_ind.adx()
+        df["adx_pos"] = adx_ind.adx_pos()
+        df["adx_neg"] = adx_ind.adx_neg()
+    except Exception:
+        df["adx"] = 25.0
+        df["adx_pos"] = 0
+        df["adx_neg"] = 0
+
+    return df
+
+
+def add_supertrend(df: pd.DataFrame, period: int = 10, multiplier: float = 3.0) -> pd.DataFrame:
+    """Add Supertrend indicator — highly effective trend-following signal."""
+    if "atr" not in df.columns:
+        return df
+
+    hl2 = (df["high"] + df["low"]) / 2
+    atr = df["atr"]
+    upper_band = hl2 + multiplier * atr
+    lower_band = hl2 - multiplier * atr
+
+    supertrend = pd.Series(np.nan, index=df.index)
+    direction = pd.Series(1, index=df.index)
+
+    for i in range(1, len(df)):
+        if df["close"].iloc[i] > upper_band.iloc[i - 1]:
+            direction.iloc[i] = 1
+        elif df["close"].iloc[i] < lower_band.iloc[i - 1]:
+            direction.iloc[i] = -1
+        else:
+            direction.iloc[i] = direction.iloc[i - 1]
+
+        if direction.iloc[i] == 1:
+            lb = lower_band.iloc[i]
+            if direction.iloc[i - 1] == 1:
+                lb = max(lb, lower_band.iloc[i - 1])
+            lower_band.iloc[i] = lb
+            supertrend.iloc[i] = lb
+        else:
+            ub = upper_band.iloc[i]
+            if direction.iloc[i - 1] == -1:
+                ub = min(ub, upper_band.iloc[i - 1])
+            upper_band.iloc[i] = ub
+            supertrend.iloc[i] = ub
+
+    df["supertrend"] = supertrend
+    df["supertrend_dir"] = direction
     return df
 
 
@@ -168,6 +220,7 @@ def compute_all_features(df: pd.DataFrame, add_targets: bool = True) -> pd.DataF
     df = add_returns_and_volatility(df)
     df = add_price_features(df)
     df = add_momentum_features(df)
+    df = add_supertrend(df)
 
     if add_targets:
         df = add_target_variables(df)

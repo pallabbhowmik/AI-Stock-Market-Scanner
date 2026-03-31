@@ -17,8 +17,8 @@ from backend import config, database
 
 logger = logging.getLogger(__name__)
 
-# ── Tunables for memory-constrained environments ────────────────────────
-_BATCH_SIZE = 25                # stocks per processing batch
+# ── Tunables for memory-constrained environments ───────────────────────────────────
+_BATCH_SIZE = 40                # stocks per processing batch (up from 25)
 _TRAIN_SAMPLE_STOCKS = 40      # max stocks used for ML training
 _MEMORY_LIMIT_MB = 460          # soft RSS ceiling (abort before 512 MB)
 
@@ -74,7 +74,8 @@ def _imp_features():
 
 def _imp_predict():
     from backend.prediction_engine import predict_stock, train_models
-    return predict_stock, train_models
+    from backend.data_pipeline import batch_download_daily
+    return predict_stock, train_models, batch_download_daily
 
 def _imp_breakout():
     from backend.breakout_detector import detect_all_breakouts
@@ -137,7 +138,7 @@ def run_full_scan(max_symbols: int = 0, retrain: bool = False,
     scan_market = _imp_scanner()
     fetch_daily_data, clean_data = _imp_data()
     compute_features, compute_momentum_score, compute_volume_spike_score = _imp_features()
-    predict_stock, train_models_fn = _imp_predict()
+    predict_stock, train_models_fn, batch_download = _imp_predict()
     detect_all_breakouts = _imp_breakout()
     compute_opportunity_score, generate_explanation, rank_stocks = _imp_ranking()
     get_stock_sentiment = _imp_sentiment()
@@ -241,7 +242,7 @@ def run_full_scan(max_symbols: int = 0, retrain: bool = False,
         # 5b-12. Per-stock analysis for this batch
         for sym, feat_df in batch_featured.items():
             try:
-                pred = predict_stock(feat_df)
+                pred = predict_stock(feat_df, regime=regime_info.get("regime", "SIDEWAYS"))
                 momentum = compute_momentum_score(feat_df)
                 vol_spike = compute_volume_spike_score(feat_df)
                 breakout = detect_all_breakouts(feat_df)
@@ -389,7 +390,7 @@ def run_quick_scan(symbols: list[str] = None, progress: dict = None) -> dict:
     """
     fetch_daily_data, clean_data = _imp_data()
     compute_features, compute_momentum_score, compute_volume_spike_score = _imp_features()
-    predict_stock, _ = _imp_predict()
+    predict_stock, _, _ = _imp_predict()
     detect_all_breakouts = _imp_breakout()
     compute_opportunity_score, generate_explanation, rank_stocks = _imp_ranking()
 
@@ -425,7 +426,7 @@ def run_quick_scan(symbols: list[str] = None, progress: dict = None) -> dict:
                     processed += 1
                     continue
 
-                pred = predict_stock(feat)
+                pred = predict_stock(feat)  # Uses default SIDEWAYS regime
                 momentum = compute_momentum_score(feat)
                 vol_spike = compute_volume_spike_score(feat)
                 breakout = detect_all_breakouts(feat)

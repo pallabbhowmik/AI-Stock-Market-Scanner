@@ -60,6 +60,7 @@ def train_random_forest(X_train, y_train, X_test, y_test) -> dict:
         min_samples_leaf=5,
         random_state=42,
         n_jobs=-1,
+        class_weight="balanced",
     )
     model.fit(X_train, y_train)
     y_pred = model.predict(X_test)
@@ -77,6 +78,8 @@ def train_gradient_boosting(X_train, y_train, X_test, y_test) -> dict:
         max_depth=5,
         learning_rate=0.05,
         subsample=0.8,
+        min_samples_split=10,
+        min_samples_leaf=5,
         random_state=42,
     )
     model.fit(X_train, y_train)
@@ -96,6 +99,8 @@ def train_xgboost(X_train, y_train, X_test, y_test) -> dict:
         learning_rate=0.05,
         subsample=0.8,
         colsample_bytree=0.8,
+        reg_alpha=0.1,
+        reg_lambda=1.0,
         use_label_encoder=False,
         eval_metric="logloss",
         random_state=42,
@@ -155,11 +160,11 @@ def train_lstm(X_train, y_train, X_test, y_test) -> dict:
 
     model = _build_lstm_model(X_train.shape[1])
     early_stop = EarlyStopping(
-        monitor="val_loss", patience=5, restore_best_weights=True
+        monitor="val_loss", patience=3, restore_best_weights=True
     )
     model.fit(
         X_train_seq, y_train_seq,
-        epochs=config.LSTM_EPOCHS,
+        epochs=min(getattr(config, 'LSTM_EPOCHS', 30), 30),
         batch_size=config.LSTM_BATCH_SIZE,
         validation_data=(X_test_seq, y_test_seq),
         callbacks=[early_stop],
