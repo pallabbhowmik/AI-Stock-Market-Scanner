@@ -219,7 +219,7 @@ Make sure these files exist in your repo root:
 
 **`Procfile`** (create if missing):
 ```
-web: python -m backend.api_server
+web: uvicorn backend.api_server:app --host 0.0.0.0 --port $PORT
 ```
 
 > Render also supports the start command via dashboard, so the Procfile is optional.
@@ -246,7 +246,7 @@ git push origin main
 | **Branch** | `main` |
 | **Runtime** | `Python 3` |
 | **Build Command** | `pip install -r requirements.txt` |
-| **Start Command** | `python -m backend.api_server` |
+| **Start Command** | `uvicorn backend.api_server:app --host 0.0.0.0 --port $PORT` |
 | **Instance Type** | `Free` |
 
 5. Click **Advanced** → **Add Environment Variables**:
@@ -259,9 +259,18 @@ git push origin main
 | `SUPABASE_SERVICE_KEY` | Your Supabase `service_role` key |
 | `CORS_ORIGINS` | `https://your-app.vercel.app` (set after Vercel deploy) |
 | `PORT` | `8000` |
+| `AUTO_START_SCHEDULER` | `true` |
+| `FULL_SCAN_CHUNK_SIZE` | `5` |
+| `FULL_SCAN_FETCH_WORKERS` | `1` |
+| `FULL_SCAN_ANALYSIS_WORKERS` | `1` |
+| `FULL_SCAN_TRAIN_SAMPLE` | `10` |
 
 6. Click **Create Web Service**.
 7. Wait for the build to finish (~3-5 minutes). Once live, note the URL: `https://stock-scanner-api.onrender.com`.
+
+> **Keep-alive:** The backend auto-pings itself every 10 minutes during IST market hours (9 AM – 4 PM, weekdays) using `RENDER_EXTERNAL_URL` (set by Render automatically). This prevents the free tier from spinning down during trading.
+
+> **Auto-scheduler:** On startup, the backend automatically starts the background scheduler that runs quick scans every 15 minutes and daily retraining after market close. No manual trigger needed.
 
 #### 2.4 Verify the backend
 
@@ -305,9 +314,11 @@ Render supports **Cron Jobs** for scheduled scans:
 
 | Key | Value |
 |-----|-------|
-| `NEXT_PUBLIC_API_URL` | `https://stock-scanner-api.onrender.com` |
+| `BACKEND_URL` | `https://stock-scanner-api.onrender.com` |
 | `NEXT_PUBLIC_SUPABASE_URL` | Your Supabase Project URL (optional, for client-side auth) |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Your Supabase anon key (optional) |
+
+> **Note:** `NEXT_PUBLIC_API_URL` is **not** needed on Vercel. The frontend calls `/api/*` which Next.js rewrites to your Render backend via `BACKEND_URL`. This avoids CORS issues entirely.
 
 6. Click **Deploy**.
 7. Wait ~1-2 minutes. Vercel gives you a URL: `https://your-app.vercel.app`.
@@ -439,14 +450,21 @@ docker compose up --build
 | `SUPABASE_URL` | If Supabase | — | Supabase project URL |
 | `SUPABASE_KEY` | If Supabase | — | Supabase anon/public API key |
 | `SUPABASE_SERVICE_KEY` | If Supabase | — | Supabase service role key |
-| `PORT` | No | `8000` | Backend port |
+| `PORT` | No | `8000` | Backend port (Render sets this automatically) |
 | `CORS_ORIGINS` | No | `http://localhost:3000` | Comma-separated allowed origins |
+| `AUTO_START_SCHEDULER` | No | `true` | Auto-start background scanner on boot |
+| `RENDER_EXTERNAL_URL` | No | — | Set by Render automatically; enables keep-alive self-ping |
+| `FULL_SCAN_CHUNK_SIZE` | No | `10` | Stocks per chunk (lower = less memory) |
+| `FULL_SCAN_FETCH_WORKERS` | No | `2` | Parallel data fetch threads |
+| `FULL_SCAN_ANALYSIS_WORKERS` | No | `2` | Parallel analysis threads |
+| `FULL_SCAN_TRAIN_SAMPLE` | No | `20` | Stocks sampled for training |
 
 ### Frontend (`frontend/.env.local` or Vercel config)
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `NEXT_PUBLIC_API_URL` | Yes | `http://localhost:8000` | Backend API URL |
+| `NEXT_PUBLIC_API_URL` | No | `` (empty) | Backend URL; leave blank on Vercel (uses rewrites) |
+| `BACKEND_URL` | Vercel only | — | Render backend URL for Next.js rewrites (server-side) |
 | `NEXT_PUBLIC_SUPABASE_URL` | No | — | For client-side Supabase auth |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | No | — | Supabase anon key for frontend |
 

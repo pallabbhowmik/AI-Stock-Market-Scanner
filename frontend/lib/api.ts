@@ -1,4 +1,6 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+// In production (Vercel), API calls go to /api/* which Next.js rewrites to the
+// Render backend.  In local dev, point directly at the FastAPI server.
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 const GET_CACHE_TTL_MS = 10_000;
 const REQUEST_TIMEOUT_MS = 15_000;
 const responseCache = new Map<string, { expiresAt: number; value: unknown }>();

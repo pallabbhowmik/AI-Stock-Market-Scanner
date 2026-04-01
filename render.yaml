@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: ai-stock-market-scanner
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn backend.api_server:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: USE_SQLITE
+        value: "true"
+      - key: CORS_ORIGINS
+        value: "http://localhost:3000,https://stockprediction-pi.vercel.app"
+      - key: FULL_SCAN_CHUNK_SIZE
+        value: "5"
+      - key: FULL_SCAN_FETCH_WORKERS
+        value: "1"
+      - key: FULL_SCAN_ANALYSIS_WORKERS
+        value: "1"
+      - key: FULL_SCAN_TRAIN_SAMPLE
+        value: "10"
+    healthCheckPath: /api/health
+    autoDeploy: true
