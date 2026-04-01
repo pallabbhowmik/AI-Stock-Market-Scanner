@@ -6,7 +6,7 @@ triggers automatic model retraining daily after market close.
 import logging
 import time
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from backend import config, database
 from backend.watchlist_generator import run_full_scan, run_quick_scan
@@ -21,7 +21,7 @@ _last_training_date: str | None = None  # tracks which day we already retrained
 
 def _ist_now() -> datetime:
     """Return current time in IST."""
-    return datetime.utcnow() + timedelta(hours=5, minutes=30)
+    return datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)
 
 
 def is_market_hours() -> bool:

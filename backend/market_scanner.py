@@ -143,6 +143,19 @@ def _download_chunk_with_retry(symbols: list[str], **kwargs) -> Optional[pd.Data
             )
             if data is not None and not data.empty:
                 return data
+        except RuntimeError as e:
+            # yfinance threads=True can hit "dictionary changed size during
+            # iteration"; retry with threads=False as fallback.
+            if "dictionary changed size" in str(e) and attempt < _MAX_RETRIES:
+                logger.warning("Download attempt %d/%d hit dict-size bug, retrying single-threaded", attempt, _MAX_RETRIES)
+                try:
+                    data = yf.download(symbols, progress=False, threads=False, **kwargs)
+                    if data is not None and not data.empty:
+                        return data
+                except Exception:
+                    pass
+            else:
+                logger.warning("Download attempt %d/%d failed: %s", attempt, _MAX_RETRIES, e)
         except Exception as e:
             logger.warning("Download attempt %d/%d failed: %s", attempt, _MAX_RETRIES, e)
 

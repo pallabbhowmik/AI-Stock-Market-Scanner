@@ -4,11 +4,14 @@ REST API for the AI Stock Market Scanner.
 """
 import logging
 import os
-from datetime import datetime
+import traceback
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from backend import config, database
 from backend.scheduler import start_scheduler, stop_scheduler, get_scheduler_status
@@ -46,57 +49,10 @@ _intraday_scan_status = {
     "stocks_total": 0,
 }
 
-app = FastAPI(
-    title="AI Stock Market Scanner",
-    description="AI-powered stock scanning and prediction platform for the Indian market",
-    version="1.0.0",
-)
-
-import traceback
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=config.CORS_ORIGINS,
-    allow_origin_regex=config.CORS_ALLOW_ORIGIN_REGEX,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-from fastapi.responses import JSONResponse
-
-@app.exception_handler(Exception)
-async def global_exception_handler(request, exc):
-    logger.error(f"Global exception: {exc}\n{traceback.format_exc()}")
-    return JSONResponse(
-        status_code=500,
-        content={"error": str(exc), "traceback": traceback.format_exc()}
-    )
-
-
-@app.on_event("startup")
-async def startup():
-    database.init_db()
-    logger.info("API server started")
-
-    # Auto-start scheduler on Render so scans run without manual trigger
-    auto_start = os.environ.get("AUTO_START_SCHEDULER", "true").lower() == "true"
-    if auto_start:
-        try:
-            start_scheduler()
-            logger.info("Scheduler auto-started")
-        except Exception as e:
-            logger.warning("Scheduler auto-start failed: %s", e)
-
-    # Keep-alive pinger: Render free tier sleeps after 15 min of inactivity.
-    # Self-ping every 10 min during Indian market hours to stay warm.
-    _start_keep_alive()
-
 
 def _start_keep_alive():
     """Self-ping thread to prevent Render free-tier spin-down during market hours."""
     import threading, time, urllib.request
-    from datetime import timedelta
 
     render_url = os.environ.get("RENDER_EXTERNAL_URL", "")
     if not render_url:
@@ -108,7 +64,7 @@ def _start_keep_alive():
     def _ping_loop():
         while True:
             try:
-                ist_now = datetime.utcnow() + timedelta(hours=5, minutes=30)
+                ist_now = datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)
                 # Keep alive from 9:00 to 16:00 IST on weekdays
                 if ist_now.weekday() < 5 and 9 <= ist_now.hour < 16:
                     urllib.request.urlopen(health_url, timeout=10)
@@ -122,11 +78,76 @@ def _start_keep_alive():
     logger.info("Keep-alive pinger started → %s", health_url)
 
 
-# ─── Health ──────────────────────────────────────────────────────────────────
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # ── Startup ──
+    database.init_db()
+    logger.info("API server started")
+
+    # Auto-start scheduler on Render so scans run without manual trigger
+    auto_start = os.environ.get("AUTO_START_SCHEDULER", "true").lower() == "true"
+    if auto_start:
+        try:
+            start_scheduler()
+            logger.info("Scheduler auto-started")
+        except Exception as e:
+            logger.warning("Scheduler auto-start failed: %s", e)
+
+    # Keep-alive pinger: Render free tier sleeps after 15 min of inactivity.
+    _start_keep_alive()
+
+    # Set yfinance cache to a writable location on Render
+    try:
+        import yfinance as yf
+        cache_dir = os.path.join(os.path.dirname(__file__), "..", "data", "yf_cache")
+        os.makedirs(cache_dir, exist_ok=True)
+        yf.set_tz_cache_location(cache_dir)
+    except Exception:
+        pass
+
+    yield
+
+    # ── Shutdown ──
+    stop_scheduler()
+    logger.info("API server shutting down")
+
+
+app = FastAPI(
+    title="AI Stock Market Scanner",
+    description="AI-powered stock scanning and prediction platform for the Indian market",
+    version="1.0.0",
+    lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=config.CORS_ORIGINS,
+    allow_origin_regex=config.CORS_ALLOW_ORIGIN_REGEX,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request, exc):
+    logger.error(f"Global exception: {exc}\n{traceback.format_exc()}")
+    return JSONResponse(
+        status_code=500,
+        content={"error": str(exc), "traceback": traceback.format_exc()}
+    )
+
+
+# ─── Root & Health ───────────────────────────────────────────────────────────
+
+@app.get("/")
+async def root():
+    return {"status": "ok", "service": "AI Stock Market Scanner", "docs": "/docs"}
+
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok", "timestamp": datetime.now().isoformat()}
+    return {"status": "ok", "timestamp": datetime.now(timezone.utc).isoformat()}
 
 
 def _build_overview_payload(
