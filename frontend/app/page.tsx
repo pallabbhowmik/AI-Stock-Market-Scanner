@@ -666,6 +666,7 @@ export default function DashboardPage() {
     setScanMsg("Full scan started — analyzing market, training AI models... this takes a few minutes.");
     try {
       await api.triggerFullScan();
+      setScanMsg("Full scan started - analyzing the market with existing models and saving results chunk by chunk.");
       startScanPoll("Full scan");
     } catch {
       setScanMsg("Failed to start scan. Is the backend running?");

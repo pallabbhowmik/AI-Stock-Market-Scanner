@@ -361,7 +361,15 @@ export const api = {
     fetchAPI<Record<string, number>>(
       `/api/stocks/${encodeURIComponent(symbol)}/indicators`
     ),
-  triggerFullScan: () => postAPI<{ status: string }>("/api/scan/full"),
+  triggerFullScan: (options?: { retrain?: boolean; maxSymbols?: number }) => {
+    const params = new URLSearchParams();
+    if (options?.retrain) params.set("retrain", "true");
+    if (typeof options?.maxSymbols === "number" && options.maxSymbols > 0) {
+      params.set("max_symbols", String(options.maxSymbols));
+    }
+    const query = params.toString();
+    return postAPI<{ status: string }>(`/api/scan/full${query ? `?${query}` : ""}`);
+  },
   triggerQuickScan: () => postAPI<{ status: string }>("/api/scan/quick"),
   triggerLiteScan: () => postAPI<{ status: string }>("/api/scan/lite"),
   getScanStatus: () => fetchAPI<{

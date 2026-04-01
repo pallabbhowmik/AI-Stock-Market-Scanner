@@ -23,7 +23,8 @@ _BATCH_SIZE = config.FULL_SCAN_CHUNK_SIZE
 _TRAIN_SAMPLE_STOCKS = config.FULL_SCAN_TRAIN_SAMPLE
 _FETCH_WORKERS = config.FULL_SCAN_FETCH_WORKERS
 _ANALYSIS_WORKERS = config.FULL_SCAN_ANALYSIS_WORKERS
-_MEMORY_LIMIT_MB = 460          # soft RSS ceiling (abort before 512 MB)
+_MEMORY_WARN_MB = 430
+_MEMORY_ABORT_MB = 500
 
 
 # ── Memory guard ────────────────────────────────────────────────────────
@@ -41,16 +42,19 @@ def _rss_mb() -> float:
         return 0.0
 
 
-def _check_memory(label: str = "") -> None:
-    """Log RSS and raise if approaching the hard limit."""
+def _check_memory(label: str = "") -> float:
+    """Log RSS and raise only if we are very close to the hard limit."""
     mb = _rss_mb()
     if mb > 0:
         logger.info("RSS after %s: %.0f MB", label or "checkpoint", mb)
-    if mb > _MEMORY_LIMIT_MB:
+    if mb > _MEMORY_WARN_MB:
+        logger.warning("High memory usage after %s: %.0f MB", label or "checkpoint", mb)
+    if mb > _MEMORY_ABORT_MB:
         raise MemoryError(
-            f"RSS {mb:.0f} MB exceeds soft limit {_MEMORY_LIMIT_MB} MB "
+            f"RSS {mb:.0f} MB exceeds safety limit {_MEMORY_ABORT_MB} MB "
             f"at {label}. Aborting to avoid OOM kill."
         )
+    return mb
 
 
 def _update_progress(progress, step: str, pct: int, total_steps: int = 13,
@@ -513,6 +517,9 @@ def run_full_scan_chunked(max_symbols: int = 0, retrain: bool = False,
                           progress: dict = None) -> dict:
     started_at = datetime.now().isoformat()
     scan_date = datetime.now().strftime("%Y-%m-%d")
+    batch_size = _BATCH_SIZE
+    fetch_workers = _FETCH_WORKERS
+    analysis_workers = _ANALYSIS_WORKERS
 
     scan_market = _imp_scanner()
     _, clean_data = _imp_data()
@@ -524,6 +531,21 @@ def run_full_scan_chunked(max_symbols: int = 0, retrain: bool = False,
     detect_regime = _imp_regime()
     generate_risk_recommendation = _imp_risk()
     run_meta_strategy, get_strategy_status = _imp_meta()
+
+    def _enter_low_memory_mode(reason: str, progress_step: str | None = None) -> None:
+        nonlocal batch_size, fetch_workers, analysis_workers
+        batch_size = min(batch_size, 5)
+        fetch_workers = 1
+        analysis_workers = 1
+        logger.warning(
+            "Low-memory mode enabled: %s (chunk=%d, fetch-workers=%d, analysis-workers=%d)",
+            reason,
+            batch_size,
+            fetch_workers,
+            analysis_workers,
+        )
+        if progress_step and progress is not None:
+            progress["current_step"] = progress_step
 
     def _persist_partial(predictions: list[dict]) -> dict:
         rankings_local = rank_stocks(predictions) if predictions else {
@@ -611,13 +633,14 @@ def run_full_scan_chunked(max_symbols: int = 0, retrain: bool = False,
 
     logger.info(
         "Starting chunked full scan (chunk=%d, train-sample=%d, fetch-workers=%d, analysis-workers=%d)",
-        _BATCH_SIZE,
+        batch_size,
         _TRAIN_SAMPLE_STOCKS,
-        _FETCH_WORKERS,
-        _ANALYSIS_WORKERS,
+        fetch_workers,
+        analysis_workers,
     )
     gc.collect()
-    _check_memory("imports")
+    if _check_memory("imports") > _MEMORY_WARN_MB:
+        _enter_low_memory_mode("high baseline memory", "Preparing low-memory scan mode...")
 
     _update_progress(progress, "Scanning market & applying filters...", 5)
     all_stocks, filtered_stocks = scan_market(max_symbols=max_symbols)
@@ -641,19 +664,27 @@ def run_full_scan_chunked(max_symbols: int = 0, retrain: bool = False,
     if retrain or not _models_exist():
         _update_progress(progress, "Training ML models...", 10)
         import random
-        train_syms = random.sample(symbols, min(_TRAIN_SAMPLE_STOCKS, len(symbols)))
+        train_sample = min(_TRAIN_SAMPLE_STOCKS, len(symbols))
+        if fetch_workers == 1:
+            train_sample = min(train_sample, 12)
+        train_syms = random.sample(symbols, train_sample)
         train_data = {}
-        train_downloads = batch_download(train_syms, period="1y", max_workers=max(1, _FETCH_WORKERS))
+        train_downloads = batch_download(train_syms, period="1y", max_workers=max(1, fetch_workers))
         for sym, df in train_downloads.items():
             clean_df = clean_data(df)
             feat_df = compute_features(clean_df)
             if not feat_df.empty:
                 train_data[sym] = feat_df
+            del clean_df, feat_df
         if train_data:
             train_models_fn(train_data)
         del train_data, train_downloads
         gc.collect()
-        _check_memory("training")
+        if _check_memory("training") > _MEMORY_WARN_MB:
+            _enter_low_memory_mode(
+                "memory remained high after model training",
+                "Memory high after training, continuing in low-memory mode...",
+            )
 
     _update_progress(progress, "Detecting market regime...", 20)
     regime_info = {"regime": "SIDEWAYS", "confidence": 0.5}
@@ -667,9 +698,9 @@ def run_full_scan_chunked(max_symbols: int = 0, retrain: bool = False,
     all_predictions = []
     rankings = {"top_buys": [], "top_sells": [], "top_breakouts": [], "volume_movers": []}
 
-    for batch_start in range(0, total_sym, _BATCH_SIZE):
-        chunk_no = batch_start // _BATCH_SIZE + 1
-        batch_syms = symbols[batch_start : batch_start + _BATCH_SIZE]
+    for batch_start in range(0, total_sym, batch_size):
+        chunk_no = batch_start // batch_size + 1
+        batch_syms = symbols[batch_start : batch_start + batch_size]
 
         _update_progress(
             progress,
@@ -680,7 +711,7 @@ def run_full_scan_chunked(max_symbols: int = 0, retrain: bool = False,
         )
 
         batch_featured = {}
-        downloaded = batch_download(batch_syms, period="1y", max_workers=max(1, _FETCH_WORKERS))
+        downloaded = batch_download(batch_syms, period="1y", max_workers=max(1, fetch_workers))
         for sym in batch_syms:
             try:
                 df = downloaded.get(sym)
@@ -693,6 +724,7 @@ def run_full_scan_chunked(max_symbols: int = 0, retrain: bool = False,
                 feat_df = compute_features(clean_df)
                 if not feat_df.empty:
                     batch_featured[sym] = feat_df
+                del clean_df, feat_df
             except Exception as e:
                 logger.debug("Fetch/feature failed for %s: %s", sym, e)
             finally:
@@ -708,7 +740,7 @@ def run_full_scan_chunked(max_symbols: int = 0, retrain: bool = False,
 
         chunk_predictions = []
         if batch_featured:
-            with ThreadPoolExecutor(max_workers=max(1, _ANALYSIS_WORKERS)) as executor:
+            with ThreadPoolExecutor(max_workers=max(1, analysis_workers)) as executor:
                 futures = {
                     executor.submit(
                         _analyse_symbol, sym, feat_df, regime_info.get("regime", "SIDEWAYS")
@@ -731,7 +763,13 @@ def run_full_scan_chunked(max_symbols: int = 0, retrain: bool = False,
 
         del batch_featured, downloaded, chunk_predictions
         gc.collect()
-        _check_memory(f"chunk {chunk_no}")
+        if _check_memory(f"chunk {chunk_no}") > _MEMORY_WARN_MB and (
+            batch_size > 5 or fetch_workers > 1 or analysis_workers > 1
+        ):
+            _enter_low_memory_mode(
+                f"memory pressure after chunk {chunk_no}",
+                f"High memory after chunk {chunk_no}, reducing parallelism...",
+            )
 
     _update_progress(progress, "Saving final scan state...", 88, stocks_processed=processed, stocks_total=total_sym)
     try:
@@ -764,7 +802,7 @@ def run_full_scan_chunked(max_symbols: int = 0, retrain: bool = False,
         "regime": regime_info,
         "started_at": started_at,
         "finished_at": finished_at,
-        "chunks_processed": (total_sym + _BATCH_SIZE - 1) // _BATCH_SIZE,
+        "chunks_processed": (total_sym + batch_size - 1) // batch_size,
     }
 
 

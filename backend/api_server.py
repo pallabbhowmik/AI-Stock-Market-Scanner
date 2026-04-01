@@ -313,7 +313,10 @@ async def stock_indicators(symbol: str):
 # ─── Scanner Control ─────────────────────────────────────────────────────────
 
 @app.post("/api/scan/full")
-async def trigger_full_scan(max_symbols: int = Query(default=0)):
+async def trigger_full_scan(
+    max_symbols: int = Query(default=0),
+    retrain: bool = Query(default=False),
+):
     """Trigger a full market scan (runs in background)."""
     import threading
     if _scan_status["running"]:
@@ -324,6 +327,11 @@ async def trigger_full_scan(max_symbols: int = Query(default=0)):
     _scan_status["result"] = None
     _scan_status["started_at"] = datetime.now().isoformat()
     _scan_status["current_step"] = "Starting…"
+    _scan_status["current_step"] = (
+        "Starting full scan with model retraining..."
+        if retrain else
+        "Starting full scan with existing models..."
+    )
     _scan_status["progress"] = 0
     _scan_status["total_steps"] = 0
     _scan_status["stocks_processed"] = 0
@@ -332,13 +340,21 @@ async def trigger_full_scan(max_symbols: int = Query(default=0)):
     def _run():
         try:
             from backend.watchlist_generator import run_full_scan
-            result = run_full_scan(max_symbols=max_symbols, retrain=True,
+            result = run_full_scan(max_symbols=max_symbols, retrain=retrain,
                                    progress=_scan_status)
             _scan_status["result"] = result
         except MemoryError:
             import gc; gc.collect()
             logger.error("Full scan aborted: out of memory")
+            _scan_status["error"] = (
+                "Full scan hit memory limits. Partial chunk results were preserved. "
+                "Try Full Scan without retraining or use Lite Scan."
+            )
             _scan_status["error"] = "Out of memory – try Lite Scan instead"
+            _scan_status["error"] = (
+                "Full scan hit memory limits. Partial chunk results were preserved. "
+                "Try Full Scan without retraining or use Lite Scan."
+            )
         except Exception as e:
             logger.error("Full scan error: %s", e, exc_info=True)
             _scan_status["error"] = str(e)
@@ -347,7 +363,8 @@ async def trigger_full_scan(max_symbols: int = Query(default=0)):
 
     thread = threading.Thread(target=_run, daemon=True)
     thread.start()
-    return {"status": "scan_started", "message": "Full scan started in background"}
+    mode = "with retraining" if retrain else "using existing models"
+    return {"status": "scan_started", "message": f"Full scan started in background ({mode})"}
 
 
 @app.post("/api/scan/quick")

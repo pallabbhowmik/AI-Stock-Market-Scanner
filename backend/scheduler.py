@@ -73,7 +73,7 @@ def _scheduler_loop():
     try:
         database.init_db()
         logger.info("Running initial full scan...")
-        run_full_scan(retrain=True)
+        run_full_scan(retrain=False)
     except Exception as e:
         logger.error("Initial scan failed: %s", e)
 
