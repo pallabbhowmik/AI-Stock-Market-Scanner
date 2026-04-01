@@ -1,7 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, Overview, Prediction, MetaStrategyStatus, TrainingStatus } from "@/lib/api";
+import {
+  api,
+  Overview,
+  Prediction,
+  MetaStrategyStatus,
+  TrainingStatus,
+  PaperPerformance,
+  PaperPortfolio,
+  PortfolioAllocation,
+  RiskRecommendation,
+} from "@/lib/api";
 import {
   TrendingUp,
   TrendingDown,
@@ -19,6 +29,10 @@ import {
   Shield,
   Target,
   Activity,
+  Wallet,
+  Gauge,
+  BriefcaseBusiness,
+  CircleDollarSign,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -72,6 +86,27 @@ function ScoreBar({ score, label }: { score: number; label: string }) {
       </div>
       <span className="w-10 text-right text-xs font-medium text-slate-300">{pct}%</span>
     </div>
+  );
+}
+
+function pct(value: number, digits = 0) {
+  return `${(value * 100).toFixed(digits)}%`;
+}
+
+function convictionLabel(prediction: Prediction) {
+  const blended = prediction.opportunity_score * 0.55 + prediction.confidence * 0.45;
+  if (blended >= 0.78) return { label: "A+", tone: "text-green-400" };
+  if (blended >= 0.68) return { label: "A", tone: "text-emerald-400" };
+  if (blended >= 0.58) return { label: "B", tone: "text-yellow-400" };
+  return { label: "C", tone: "text-slate-400" };
+}
+
+function setupQuality(prediction: Prediction) {
+  return (
+    prediction.opportunity_score * 0.5 +
+    prediction.momentum_score * 0.2 +
+    prediction.breakout_score * 0.15 +
+    prediction.volume_spike_score * 0.15
   );
 }
 
@@ -379,6 +414,256 @@ function TrainingStatusPanel({
   );
 }
 
+function ActionPlanPanel({
+  overview,
+  meta,
+  buys,
+}: {
+  overview: Overview;
+  meta: MetaStrategyStatus | null;
+  buys: Prediction[];
+}) {
+  const regime = meta?.regime || "SIDEWAYS";
+  const regimeConfidence = meta?.regime_confidence ?? 0;
+  const strongBuys = buys.filter((p) => p.confidence >= 0.65 && p.opportunity_score >= 0.65);
+  const avgOpportunity = buys.length
+    ? buys.reduce((sum, p) => sum + p.opportunity_score, 0) / buys.length
+    : 0;
+  const breadth = overview.analyzed_today > 0 ? overview.buy_signals / overview.analyzed_today : 0;
+
+  const posture =
+    regime === "BULL" && breadth >= 0.18
+      ? "Lean offensive"
+      : regime === "BEAR"
+      ? "Protect capital"
+      : "Stay selective";
+
+  const notes = [
+    regime === "BULL"
+      ? "Trend regime supports breakout-following longs, but only take the cleanest setups."
+      : regime === "BEAR"
+      ? "Bear regime means lower position size, faster exits, and stricter entry filters."
+      : "Sideways regime favors patience. Skip mediocre signals and only trade top-conviction names.",
+    strongBuys.length >= 3
+      ? `${strongBuys.length} high-conviction buy setups are available now.`
+      : "There are not many high-conviction setups right now, so forcing trades is likely a mistake.",
+    avgOpportunity >= 0.65
+      ? "Average opportunity quality is healthy enough to consider deploying capital gradually."
+      : "Average setup quality is modest. Keep risk small and wait for cleaner alignment.",
+  ];
+
+  return (
+    <div className="card animate-in">
+      <div className="mb-4 flex items-center gap-2">
+        <Gauge size={20} className="text-amber-400" />
+        <h2 className="text-lg font-semibold">Trading Playbook</h2>
+      </div>
+      <div className="grid gap-3 md:grid-cols-3">
+        <div className="rounded-xl border border-slate-700 bg-slate-800/50 p-4">
+          <div className="text-xs uppercase tracking-wide text-slate-500">Posture</div>
+          <div className="mt-2 text-xl font-bold text-white">{posture}</div>
+          <div className="mt-1 text-sm text-slate-400">
+            {regime} regime with {pct(regimeConfidence, 0)} confidence
+          </div>
+        </div>
+        <div className="rounded-xl border border-slate-700 bg-slate-800/50 p-4">
+          <div className="text-xs uppercase tracking-wide text-slate-500">Signal Breadth</div>
+          <div className="mt-2 text-xl font-bold text-white">{pct(breadth, 0)}</div>
+          <div className="mt-1 text-sm text-slate-400">
+            {overview.buy_signals} buy signals out of {overview.analyzed_today} analyzed
+          </div>
+        </div>
+        <div className="rounded-xl border border-slate-700 bg-slate-800/50 p-4">
+          <div className="text-xs uppercase tracking-wide text-slate-500">Deployable Setups</div>
+          <div className="mt-2 text-xl font-bold text-white">{strongBuys.length}</div>
+          <div className="mt-1 text-sm text-slate-400">
+            Confidence and opportunity both above 65%
+          </div>
+        </div>
+      </div>
+      <div className="mt-4 space-y-2">
+        {notes.map((note) => (
+          <div key={note} className="rounded-lg border border-slate-800 bg-slate-900/60 px-4 py-3 text-sm text-slate-300">
+            {note}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CapitalPlanPanel({
+  allocation,
+  paperPortfolio,
+  paperPerformance,
+}: {
+  allocation: PortfolioAllocation | null;
+  paperPortfolio: PaperPortfolio | null;
+  paperPerformance: PaperPerformance | null;
+}) {
+  const topAllocation = allocation?.allocation?.slice(0, 5) || [];
+
+  return (
+    <div className="grid gap-4 xl:grid-cols-2">
+      <div className="card animate-in">
+        <div className="mb-4 flex items-center gap-2">
+          <BriefcaseBusiness size={20} className="text-cyan-400" />
+          <h2 className="text-lg font-semibold">Suggested Allocation</h2>
+          <Tip text="Weights are derived from the current BUY list to help you concentrate capital in the strongest names instead of spreading too thin." />
+        </div>
+        {topAllocation.length ? (
+          <div className="space-y-3">
+            {topAllocation.map((item) => (
+              <div key={item.symbol} className="rounded-lg border border-slate-700 bg-slate-800/50 p-3">
+                <div className="mb-2 flex items-center justify-between">
+                  <Link href={`/explorer?stock=${item.symbol}`} className="font-semibold text-white hover:text-accent">
+                    {item.symbol}
+                  </Link>
+                  <span className="text-sm font-medium text-cyan-300">{pct(item.weight, 1)}</span>
+                </div>
+                <ScoreBar score={item.weight} label="" />
+              </div>
+            ))}
+            <p className="text-xs text-slate-400">
+              Method: <span className="font-medium text-slate-300">{allocation?.method || "score_weighted"}</span>
+            </p>
+          </div>
+        ) : (
+          <p className="text-sm text-slate-500">No current BUY basket available for allocation yet.</p>
+        )}
+      </div>
+
+      <div className="card animate-in">
+        <div className="mb-4 flex items-center gap-2">
+          <Wallet size={20} className="text-green-400" />
+          <h2 className="text-lg font-semibold">Paper Portfolio Snapshot</h2>
+          <Tip text="Use this to pressure-test your discipline. The dashboard is more useful when your live decisions are compared against paper-trade outcomes." />
+        </div>
+        {paperPortfolio ? (
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-lg border border-slate-700 bg-slate-800/50 px-3 py-2">
+                <div className="text-xs text-slate-500">Portfolio Value</div>
+                <div className="text-lg font-bold text-white">
+                  Rs {Math.round(paperPortfolio.portfolio_value).toLocaleString("en-IN")}
+                </div>
+              </div>
+              <div className="rounded-lg border border-slate-700 bg-slate-800/50 px-3 py-2">
+                <div className="text-xs text-slate-500">Open Positions</div>
+                <div className="text-lg font-bold text-white">{paperPortfolio.open_positions}</div>
+              </div>
+              <div className="rounded-lg border border-slate-700 bg-slate-800/50 px-3 py-2">
+                <div className="text-xs text-slate-500">Total Return</div>
+                <div className={`text-lg font-bold ${paperPortfolio.total_return >= 0 ? "text-green-400" : "text-red-400"}`}>
+                  {paperPortfolio.total_return_pct.toFixed(2)}%
+                </div>
+              </div>
+              <div className="rounded-lg border border-slate-700 bg-slate-800/50 px-3 py-2">
+                <div className="text-xs text-slate-500">Profit Factor</div>
+                <div className="text-lg font-bold text-white">
+                  {paperPerformance ? paperPerformance.profit_factor.toFixed(2) : "-"}
+                </div>
+              </div>
+            </div>
+            <div className="mt-3 text-sm text-slate-400">
+              Win rate: <span className="font-medium text-slate-200">{paperPerformance ? pct(paperPerformance.win_rate, 0) : "-"}</span>
+              {" · "}
+              Max drawdown: <span className="font-medium text-slate-200">{paperPerformance ? `${paperPerformance.max_drawdown.toFixed(2)}%` : "-"}</span>
+            </div>
+          </>
+        ) : (
+          <p className="text-sm text-slate-500">Paper trading data is not available yet.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ExecutionPanel({
+  predictions,
+  risks,
+}: {
+  predictions: Prediction[];
+  risks: Record<string, RiskRecommendation>;
+}) {
+  const setups = predictions
+    .map((prediction) => ({ prediction, risk: risks[prediction.symbol] }))
+    .slice(0, 5);
+
+  return (
+    <div className="card animate-in">
+      <div className="mb-4 flex items-center gap-2">
+        <CircleDollarSign size={20} className="text-emerald-400" />
+        <h2 className="text-lg font-semibold">Best Setup Planner</h2>
+        <Tip text="This shortlist combines conviction, signal quality, and available risk guidance so you can act on a few strong names instead of many average ones." />
+      </div>
+      {!setups.length ? (
+        <p className="text-sm text-slate-500">No strong setups available yet.</p>
+      ) : (
+        <div className="space-y-3">
+          {setups.map(({ prediction, risk }) => {
+            const conviction = convictionLabel(prediction);
+            return (
+              <div key={prediction.symbol} className="rounded-xl border border-slate-700 bg-slate-800/50 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <Link href={`/explorer?stock=${prediction.symbol}`} className="text-lg font-semibold text-white hover:text-accent">
+                        {prediction.symbol}
+                      </Link>
+                      <SignalBadge signal={prediction.signal} />
+                      <span className={`text-sm font-semibold ${conviction.tone}`}>{conviction.label}</span>
+                    </div>
+                    <p className="mt-2 max-w-3xl text-sm text-slate-400">{prediction.explanation}</p>
+                  </div>
+                  <div className="grid min-w-[220px] grid-cols-2 gap-2 text-sm">
+                    <div className="rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2">
+                      <div className="text-xs text-slate-500">Confidence</div>
+                      <div className="font-semibold text-white">{pct(prediction.confidence, 0)}</div>
+                    </div>
+                    <div className="rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2">
+                      <div className="text-xs text-slate-500">Setup Quality</div>
+                      <div className="font-semibold text-white">{pct(setupQuality(prediction), 0)}</div>
+                    </div>
+                    <div className="rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2">
+                      <div className="text-xs text-slate-500">Momentum</div>
+                      <div className="font-semibold text-white">{pct(prediction.momentum_score, 0)}</div>
+                    </div>
+                    <div className="rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2">
+                      <div className="text-xs text-slate-500">Breakout</div>
+                      <div className="font-semibold text-white">{pct(prediction.breakout_score, 0)}</div>
+                    </div>
+                  </div>
+                </div>
+                {risk && (
+                  <div className="mt-3 grid gap-2 md:grid-cols-4">
+                    <div className="rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2">
+                      <div className="text-xs text-slate-500">Entry</div>
+                      <div className="font-semibold text-white">{risk.entry_price.toFixed(2)}</div>
+                    </div>
+                    <div className="rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2">
+                      <div className="text-xs text-slate-500">Stop Loss</div>
+                      <div className="font-semibold text-red-400">{risk.stop_loss.toFixed(2)}</div>
+                    </div>
+                    <div className="rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2">
+                      <div className="text-xs text-slate-500">Take Profit</div>
+                      <div className="font-semibold text-green-400">{risk.take_profit.toFixed(2)}</div>
+                    </div>
+                    <div className="rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2">
+                      <div className="text-xs text-slate-500">Risk/Reward</div>
+                      <div className="font-semibold text-white">{risk.risk_reward_ratio.toFixed(2)}x</div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Top Predictions Table ──────────────────────────────────────────────────
 function PredictionTable({ predictions, title, emptyMsg }: { predictions: Prediction[]; title: string; emptyMsg: string }) {
   if (!predictions.length) {
@@ -561,6 +846,10 @@ export default function DashboardPage() {
   const [sells, setSells] = useState<Prediction[]>([]);
   const [meta, setMeta] = useState<MetaStrategyStatus | null>(null);
   const [training, setTraining] = useState<TrainingStatus | null>(null);
+  const [portfolioAllocation, setPortfolioAllocation] = useState<PortfolioAllocation | null>(null);
+  const [paperPortfolio, setPaperPortfolio] = useState<PaperPortfolio | null>(null);
+  const [paperPerformance, setPaperPerformance] = useState<PaperPerformance | null>(null);
+  const [topRisks, setTopRisks] = useState<Record<string, RiskRecommendation>>({});
   const [retraining, setRetraining] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -592,13 +881,42 @@ export default function DashboardPage() {
     try {
       setLoading(true);
       setError(null);
-      const dashboard = await api.getDashboard();
+      const [dashboard, portfolio, paperPort, paperPerf] = await Promise.all([
+        api.getDashboard(),
+        api.getPortfolio().catch(() => null),
+        api.getPaperPortfolio().catch(() => null),
+        api.getPaperPerformance().catch(() => null),
+      ]);
       setOverview(dashboard.overview);
       setBuys(dashboard.buys);
       setSells(dashboard.sells);
       setMeta(dashboard.meta);
       setTraining(dashboard.training);
       setSchedulerOn(dashboard.overview.scheduler?.running ?? false);
+      setPortfolioAllocation(portfolio);
+      setPaperPortfolio(paperPort);
+      setPaperPerformance(paperPerf);
+
+      const riskTargets = dashboard.buys.slice(0, 5);
+      if (riskTargets.length) {
+        const riskEntries = await Promise.all(
+          riskTargets.map(async (prediction) => {
+            try {
+              const risk = await api.getRisk(prediction.symbol);
+              return [prediction.symbol, risk] as const;
+            } catch {
+              return null;
+            }
+          })
+        );
+        setTopRisks(
+          Object.fromEntries(
+            riskEntries.filter((entry): entry is readonly [string, RiskRecommendation] => Boolean(entry))
+          )
+        );
+      } else {
+        setTopRisks({});
+      }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to load data. Is the backend running?");
     } finally {
@@ -869,10 +1187,24 @@ export default function DashboardPage() {
       {/* Meta-AI Strategy Mix */}
       {meta && <StrategyMixPanel meta={meta} />}
 
+      {hasData && overview && (
+        <ActionPlanPanel overview={overview} meta={meta} buys={buys} />
+      )}
+
+      {hasData && (
+        <CapitalPlanPanel
+          allocation={portfolioAllocation}
+          paperPortfolio={paperPortfolio}
+          paperPerformance={paperPerformance}
+        />
+      )}
+
       {/* Model Training Status */}
       {training && (
         <TrainingStatusPanel training={training} onRetrain={handleRetrain} retraining={retraining} />
       )}
+
+      {hasData && <ExecutionPanel predictions={buys} risks={topRisks} />}
 
       {/* Top Buys */}
       <PredictionTable
