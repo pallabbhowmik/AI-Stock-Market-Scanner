@@ -95,6 +95,10 @@ MARKET_OPEN_HOUR = 9
 MARKET_OPEN_MINUTE = 15
 MARKET_CLOSE_HOUR = 15
 MARKET_CLOSE_MINUTE = 30
+FULL_SCAN_CHUNK_SIZE = int(os.getenv("FULL_SCAN_CHUNK_SIZE", "20"))
+FULL_SCAN_FETCH_WORKERS = int(os.getenv("FULL_SCAN_FETCH_WORKERS", "4"))
+FULL_SCAN_ANALYSIS_WORKERS = int(os.getenv("FULL_SCAN_ANALYSIS_WORKERS", "4"))
+FULL_SCAN_TRAIN_SAMPLE = int(os.getenv("FULL_SCAN_TRAIN_SAMPLE", "40"))
 
 # ─── API ──────────────────────────────────────────────────────────────────────
 API_HOST = "0.0.0.0"

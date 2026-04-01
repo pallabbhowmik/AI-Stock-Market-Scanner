@@ -355,6 +355,72 @@ def save_predictions(predictions: list[dict]):
     _cache_invalidate({"predictions"})
 
 
+def clear_predictions(date: Optional[str] = None):
+    """Delete predictions for a specific date."""
+    target_date = date or datetime.now().strftime("%Y-%m-%d")
+    if config.USE_SQLITE:
+        conn = _get_sqlite_conn()
+        conn.execute("DELETE FROM predictions WHERE date = ?", (target_date,))
+        conn.commit()
+        conn.close()
+    else:
+        sb = _get_supabase()
+        sb.table("predictions").delete().eq("date", target_date).execute()
+    _cache_invalidate({"predictions"})
+
+
+def save_predictions_chunk(predictions: list[dict], date: Optional[str] = None):
+    """Upsert a subset of predictions for the given date without clearing the whole day."""
+    if not predictions:
+        return
+    target_date = date or datetime.now().strftime("%Y-%m-%d")
+    symbols = [p["symbol"] for p in predictions if p.get("symbol")]
+    if not symbols:
+        return
+
+    if config.USE_SQLITE:
+        conn = _get_sqlite_conn()
+        placeholders = ",".join("?" for _ in symbols)
+        conn.execute(
+            f"DELETE FROM predictions WHERE date = ? AND symbol IN ({placeholders})",
+            (target_date, *symbols),
+        )
+        for p in predictions:
+            conn.execute("""
+                INSERT INTO predictions
+                (symbol, date, signal, confidence, ai_probability, momentum_score,
+                 breakout_score, volume_spike_score, opportunity_score, explanation)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                p["symbol"], target_date, p.get("signal", "HOLD"),
+                p.get("confidence", 0), p.get("ai_probability", 0.5),
+                p.get("momentum_score", 0), p.get("breakout_score", 0),
+                p.get("volume_spike_score", 0), p.get("opportunity_score", 0),
+                p.get("explanation", ""),
+            ))
+        conn.commit()
+        conn.close()
+    else:
+        sb = _get_supabase()
+        sb.table("predictions").delete().eq("date", target_date).in_("symbol", symbols).execute()
+        rows = []
+        for p in predictions:
+            rows.append({
+                "symbol": p["symbol"],
+                "date": target_date,
+                "signal": p.get("signal", "HOLD"),
+                "confidence": p.get("confidence", 0),
+                "ai_probability": p.get("ai_probability", 0.5),
+                "momentum_score": p.get("momentum_score", 0),
+                "breakout_score": p.get("breakout_score", 0),
+                "volume_spike_score": p.get("volume_spike_score", 0),
+                "opportunity_score": p.get("opportunity_score", 0),
+                "explanation": p.get("explanation", ""),
+            })
+        sb.table("predictions").insert(_sanitize(rows)).execute()
+    _cache_invalidate({"predictions"})
+
+
 def save_watchlist(watchlist: list[dict]):
     """Save today's watchlist."""
     if not watchlist:
@@ -392,6 +458,44 @@ def save_watchlist(watchlist: list[dict]):
                 "rank": w.get("rank", 0),
             })
         sb.table("watchlist").insert(_sanitize(rows)).execute()
+    _cache_invalidate({"watchlist"})
+
+
+def replace_watchlist(date: str, watchlist: list[dict]):
+    """Replace the watchlist for a specific date."""
+    if config.USE_SQLITE:
+        conn = _get_sqlite_conn()
+        conn.execute("DELETE FROM watchlist WHERE date = ?", (date,))
+        for w in watchlist:
+            conn.execute("""
+                INSERT INTO watchlist
+                (date, category, symbol, signal, confidence, opportunity_score, explanation, rank)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                date, w.get("category", ""), w["symbol"],
+                w.get("signal", "HOLD"), w.get("confidence", 0),
+                w.get("opportunity_score", 0), w.get("explanation", ""),
+                w.get("rank", 0),
+            ))
+        conn.commit()
+        conn.close()
+    else:
+        sb = _get_supabase()
+        sb.table("watchlist").delete().eq("date", date).execute()
+        rows = []
+        for w in watchlist:
+            rows.append({
+                "date": date,
+                "category": w.get("category", ""),
+                "symbol": w["symbol"],
+                "signal": w.get("signal", "HOLD"),
+                "confidence": w.get("confidence", 0),
+                "opportunity_score": w.get("opportunity_score", 0),
+                "explanation": w.get("explanation", ""),
+                "rank": w.get("rank", 0),
+            })
+        if rows:
+            sb.table("watchlist").insert(_sanitize(rows)).execute()
     _cache_invalidate({"watchlist"})
 
 

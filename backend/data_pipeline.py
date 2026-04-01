@@ -150,7 +150,8 @@ def fetch_batch_daily(symbols: list[str], period: str = "1y",
     return results
 
 
-def batch_download_daily(symbols: list[str], period: str = "1y") -> dict[str, pd.DataFrame]:
+def batch_download_daily(symbols: list[str], period: str = "1y",
+                         max_workers: Optional[int] = None) -> dict[str, pd.DataFrame]:
     """
     Download daily data for multiple symbols in one yfinance call.
     This is 3-5x faster than downloading one by one.
@@ -165,7 +166,7 @@ def batch_download_daily(symbols: list[str], period: str = "1y") -> dict[str, pd
                           group_by="ticker", progress=False, threads=True)
     except Exception as e:
         logger.warning("Batch download failed, falling back to individual: %s", e)
-        return fetch_batch_daily(symbols, period=period)
+        return fetch_batch_daily(symbols, period=period, max_workers=max_workers or 5)
 
     results = {}
     for ticker, symbol in symbol_map.items():
