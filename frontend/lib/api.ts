@@ -35,7 +35,6 @@ async function fetchAPI<T>(endpoint: string, options?: { cacheMs?: number; force
 
   const request = fetch(url, {
     cache: "no-store",
-    headers: { "Content-Type": "application/json" },
     signal: controller.signal,
   })
     .then(async (res) => {

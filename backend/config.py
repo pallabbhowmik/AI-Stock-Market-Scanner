@@ -108,6 +108,7 @@ CORS_ORIGINS = [o.strip() for o in _cors_raw.split(",") if o.strip()]
 # Ensure Vercel frontend is always allowed
 if "https://stockprediction-pi.vercel.app" not in CORS_ORIGINS:
     CORS_ORIGINS.append("https://stockprediction-pi.vercel.app")
+CORS_ALLOW_ORIGIN_REGEX = os.getenv("CORS_ALLOW_ORIGIN_REGEX", r"https://.*\.vercel\.app")
 
 # ─── Intraday Trading ──────────────────────────────────────────────────────────
 INTRADAY_INTERVALS = ["5m", "15m"]         # candle intervals to fetch
