@@ -254,29 +254,170 @@ def execute_order(
 
 # ─── Auto-Execute AI Signals ────────────────────────────────────────────────
 
-def auto_execute_signals():
+# Minimum confidence to open a new position (high bar = fewer but better trades)
+_MIN_ENTRY_CONFIDENCE = 0.65
+# Maximum days to hold a position before forced exit
+_MAX_HOLD_DAYS = 5
+# Daily portfolio loss limit — stop opening new trades if breached
+_DAILY_LOSS_LIMIT_PCT = 0.015  # 1.5%
+# Trailing stop: trigger after this many ATRs of profit
+_TRAIL_TRIGGER_ATR = 1.5
+# Trail distance (ATRs below highest price)
+_TRAIL_DISTANCE_ATR = 1.0
+
+
+def _get_atr(symbol: str, period: int = 14) -> float:
+    """Compute ATR for position sizing and trailing stops."""
+    try:
+        df = fetch_daily_data(symbol, period="1mo")
+        if df.empty or len(df) < period + 1:
+            return 0.0
+        df = clean_data(df)
+        h = df["high"].values.astype(float)
+        l = df["low"].values.astype(float)
+        c = df["close"].values.astype(float)
+        tr = []
+        for i in range(1, len(h)):
+            tr.append(max(h[i] - l[i], abs(h[i] - c[i-1]), abs(l[i] - c[i-1])))
+        return float(sum(tr[-period:]) / min(period, len(tr))) if tr else 0.0
+    except Exception:
+        return 0.0
+
+
+def manage_open_positions():
     """
-    Read today's AI predictions and auto-execute paper trades:
-    - BUY signals → open positions (if not already held)
-    - SELL signals → close existing positions
+    Review all open positions and auto-manage exits:
+    1. Trailing stop: ratchet SL upward once in profit
+    2. Time-based exit: sell after _MAX_HOLD_DAYS days
+    3. Hard stop-loss: exit if price drops > 2×ATR from entry
     """
-    preds = database.get_predictions()
     port = _load_portfolio()
     results = []
+
+    for symbol, pos in list(port["positions"].items()):
+        live_price = _get_live_price(symbol)
+        if live_price is None:
+            continue
+
+        entry = pos["avg_price"]
+        opened = pos.get("opened_at", "")
+
+        # --- Time-based exit ---
+        if opened:
+            try:
+                open_dt = datetime.fromisoformat(opened)
+                days_held = (datetime.now() - open_dt).days
+                if days_held >= _MAX_HOLD_DAYS:
+                    logger.info("Time exit: %s held %d days", symbol, days_held)
+                    res = execute_order(symbol, "SELL", quantity=pos["qty"])
+                    results.append(res)
+                    port = _load_portfolio()
+                    continue
+            except (ValueError, TypeError):
+                pass
+
+        # --- ATR-based trailing stop / hard stop ---
+        atr = _get_atr(symbol)
+        if atr > 0:
+            profit = live_price - entry
+            profit_atr = profit / atr
+
+            # Hard stop-loss: exit if price fell > 2×ATR below entry
+            if profit_atr <= -2.0:
+                logger.info("Hard stop: %s at %.2f (entry %.2f, %.1f ATR loss)",
+                            symbol, live_price, entry, profit_atr)
+                res = execute_order(symbol, "SELL", quantity=pos["qty"])
+                results.append(res)
+                port = _load_portfolio()
+                continue
+
+            # Trailing stop: once in profit by _TRAIL_TRIGGER_ATR, trail at _TRAIL_DISTANCE_ATR
+            if profit_atr >= _TRAIL_TRIGGER_ATR:
+                trail_stop = live_price - _TRAIL_DISTANCE_ATR * atr
+                # If the trailing stop is above entry, and price dipped near it
+                highest = pos.get("highest_price", live_price)
+                highest = max(highest, live_price)
+                # Update highest price tracking
+                pos["highest_price"] = highest
+                trail_from_high = highest - _TRAIL_DISTANCE_ATR * atr
+                if live_price <= trail_from_high:
+                    logger.info("Trailing stop: %s at %.2f (high %.2f, trail %.2f)",
+                                symbol, live_price, highest, trail_from_high)
+                    res = execute_order(symbol, "SELL", quantity=pos["qty"])
+                    results.append(res)
+                    port = _load_portfolio()
+                    continue
+            elif profit_atr >= 0:
+                # Track highest price even before trail triggers
+                pos["highest_price"] = max(pos.get("highest_price", live_price), live_price)
+
+    # Save any highest_price updates
+    _save_portfolio(port)
+
+    if results:
+        logger.info("Position management: %d auto-exits", len(results))
+    return results
+
+
+def auto_execute_signals():
+    """
+    Smart auto-execution with profit-focused filters:
+    1. Manage existing positions first (trailing stops, time exits)
+    2. Only open new positions on HIGH confidence BUY signals
+    3. Check daily loss limit before new entries
+    4. Use ATR-based position sizing
+    """
+    # Step 1: Manage exits on existing positions
+    exit_results = manage_open_positions()
+
+    # Step 2: Check daily loss limit
+    port = _load_portfolio()
+    portfolio_value = port["cash"]
+    for sym, pos in port["positions"].items():
+        price = _get_live_price(sym) or pos["avg_price"]
+        portfolio_value += price * pos["qty"]
+
+    daily_pnl_pct = (portfolio_value / port["initial_capital"]) - 1.0
+    # Use absolute daily P&L (approximation — true daily needs start-of-day snapshot)
+    if daily_pnl_pct < -_DAILY_LOSS_LIMIT_PCT:
+        logger.warning("Daily loss limit hit (%.2f%%). No new trades today.", daily_pnl_pct * 100)
+        return exit_results
+
+    # Step 3: Open new positions only on high-confidence BUY signals
+    preds = database.get_predictions()
+    results = list(exit_results)
+
+    # Sort by opportunity_score descending — trade the best opportunities first
+    preds.sort(key=lambda p: p.get("opportunity_score", 0), reverse=True)
 
     for pred in preds:
         symbol = pred.get("symbol", "")
         signal = pred.get("signal", "HOLD")
         confidence = pred.get("confidence", 0)
+        opp_score = pred.get("opportunity_score", 0)
 
-        if signal == "BUY" and confidence >= 0.5:
+        if signal == "BUY" and confidence >= _MIN_ENTRY_CONFIDENCE and opp_score >= 0.55:
             if symbol not in port["positions"]:
                 # Check position limit
                 if len(port["positions"]) >= config.MAX_POSITIONS:
-                    continue
-                res = execute_order(symbol, "BUY")
+                    break
+
+                # ATR-based smart position sizing
+                atr = _get_atr(symbol)
+                price = _get_live_price(symbol)
+                if price and atr > 0:
+                    risk_per_share = 2.0 * atr  # risk = 2×ATR
+                    risk_amount = port["cash"] * config.RISK_PER_TRADE_PCT
+                    qty = max(1, int(risk_amount / risk_per_share))
+                    # Cap at max position size
+                    max_qty = int(port["cash"] * config.MAX_POSITION_SIZE_PCT / price)
+                    qty = min(qty, max_qty)
+                    res = execute_order(symbol, "BUY", quantity=qty)
+                else:
+                    res = execute_order(symbol, "BUY")
+
                 results.append(res)
-                port = _load_portfolio()  # reload after trade
+                port = _load_portfolio()
 
         elif signal == "SELL":
             if symbol in port["positions"]:
@@ -284,7 +425,8 @@ def auto_execute_signals():
                 results.append(res)
                 port = _load_portfolio()
 
-    logger.info("Auto-executed %d paper trades", len(results))
+    logger.info("Auto-executed %d paper trades (%d exits + %d new)",
+                len(results), len(exit_results), len(results) - len(exit_results))
     return results
 
 

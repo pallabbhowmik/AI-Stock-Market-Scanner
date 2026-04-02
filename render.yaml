@@ -20,5 +20,7 @@ services:
         value: "1"
       - key: FULL_SCAN_TRAIN_SAMPLE
         value: "10"
+      - key: DOWNLOAD_CHUNK
+        value: "15"
     healthCheckPath: /api/health
     autoDeploy: true

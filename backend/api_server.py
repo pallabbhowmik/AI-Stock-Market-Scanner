@@ -791,6 +791,14 @@ async def paper_auto_execute():
     return {"executed": len(results), "trades": results}
 
 
+@app.post("/api/paper/manage-positions")
+async def paper_manage_positions():
+    """Review open positions: apply trailing stops, time-based exits, hard stops."""
+    from backend.paper_trading import manage_open_positions
+    results = manage_open_positions()
+    return {"exits": len(results), "trades": results}
+
+
 @app.post("/api/paper/reset")
 async def paper_reset():
     """Reset paper trading portfolio to initial balance."""

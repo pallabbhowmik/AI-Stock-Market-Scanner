@@ -11,20 +11,16 @@ import gc
 import logging
 import os
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
 from backend import config, database
 
 logger = logging.getLogger(__name__)
 
-# ── Tunables for memory-constrained environments ───────────────────────────────────
-_BATCH_SIZE = config.FULL_SCAN_CHUNK_SIZE
-_TRAIN_SAMPLE_STOCKS = config.FULL_SCAN_TRAIN_SAMPLE
-_FETCH_WORKERS = config.FULL_SCAN_FETCH_WORKERS
-_ANALYSIS_WORKERS = config.FULL_SCAN_ANALYSIS_WORKERS
-_MEMORY_WARN_MB = 430
-_MEMORY_ABORT_MB = 500
+# ── Tunables for memory-constrained environments ────────────────────────
+_BATCH_SIZE = int(os.getenv("FULL_SCAN_CHUNK_SIZE", "25"))  # stocks per processing batch
+_TRAIN_SAMPLE_STOCKS = int(os.getenv("FULL_SCAN_TRAIN_SAMPLE", "40"))  # max stocks for ML training
+_MEMORY_LIMIT_MB = 460          # soft RSS ceiling (abort before 512 MB)
 
 
 # ── Memory guard ────────────────────────────────────────────────────────
@@ -42,19 +38,16 @@ def _rss_mb() -> float:
         return 0.0
 
 
-def _check_memory(label: str = "") -> float:
-    """Log RSS and raise only if we are very close to the hard limit."""
+def _check_memory(label: str = "") -> None:
+    """Log RSS and raise if approaching the hard limit."""
     mb = _rss_mb()
     if mb > 0:
         logger.info("RSS after %s: %.0f MB", label or "checkpoint", mb)
-    if mb > _MEMORY_WARN_MB:
-        logger.warning("High memory usage after %s: %.0f MB", label or "checkpoint", mb)
-    if mb > _MEMORY_ABORT_MB:
+    if mb > _MEMORY_LIMIT_MB:
         raise MemoryError(
-            f"RSS {mb:.0f} MB exceeds safety limit {_MEMORY_ABORT_MB} MB "
+            f"RSS {mb:.0f} MB exceeds soft limit {_MEMORY_LIMIT_MB} MB "
             f"at {label}. Aborting to avoid OOM kill."
         )
-    return mb
 
 
 def _update_progress(progress, step: str, pct: int, total_steps: int = 13,
@@ -66,22 +59,6 @@ def _update_progress(progress, step: str, pct: int, total_steps: int = 13,
     progress["total_steps"] = total_steps
     progress["stocks_processed"] = stocks_processed
     progress["stocks_total"] = stocks_total
-
-
-def _build_watchlist_items(rankings: dict) -> list[dict]:
-    items = []
-    for category, rows in rankings.items():
-        for row in rows:
-            items.append({
-                "category": category,
-                "symbol": row["symbol"],
-                "signal": row.get("meta_signal", row.get("signal", "HOLD")),
-                "confidence": row.get("confidence", 0),
-                "opportunity_score": row.get("opportunity_score", 0),
-                "explanation": row.get("explanation", ""),
-                "rank": row.get("rank", 0),
-            })
-    return items
 
 
 # ── Lazy imports (called once, then cached by Python) ───────────────────
@@ -97,8 +74,7 @@ def _imp_features():
 
 def _imp_predict():
     from backend.prediction_engine import predict_stock, train_models
-    from backend.data_pipeline import batch_download_daily
-    return predict_stock, train_models, batch_download_daily
+    return predict_stock, train_models
 
 def _imp_breakout():
     from backend.breakout_detector import detect_all_breakouts
@@ -161,7 +137,7 @@ def run_full_scan(max_symbols: int = 0, retrain: bool = False,
     scan_market = _imp_scanner()
     fetch_daily_data, clean_data = _imp_data()
     compute_features, compute_momentum_score, compute_volume_spike_score = _imp_features()
-    predict_stock, train_models_fn, batch_download = _imp_predict()
+    predict_stock, train_models_fn = _imp_predict()
     detect_all_breakouts = _imp_breakout()
     compute_opportunity_score, generate_explanation, rank_stocks = _imp_ranking()
     get_stock_sentiment = _imp_sentiment()
@@ -265,7 +241,7 @@ def run_full_scan(max_symbols: int = 0, retrain: bool = False,
         # 5b-12. Per-stock analysis for this batch
         for sym, feat_df in batch_featured.items():
             try:
-                pred = predict_stock(feat_df, regime=regime_info.get("regime", "SIDEWAYS"))
+                pred = predict_stock(feat_df)
                 momentum = compute_momentum_score(feat_df)
                 vol_spike = compute_volume_spike_score(feat_df)
                 breakout = detect_all_breakouts(feat_df)
@@ -413,7 +389,7 @@ def run_quick_scan(symbols: list[str] = None, progress: dict = None) -> dict:
     """
     fetch_daily_data, clean_data = _imp_data()
     compute_features, compute_momentum_score, compute_volume_spike_score = _imp_features()
-    predict_stock, _, _ = _imp_predict()
+    predict_stock, _ = _imp_predict()
     detect_all_breakouts = _imp_breakout()
     compute_opportunity_score, generate_explanation, rank_stocks = _imp_ranking()
 
@@ -449,7 +425,7 @@ def run_quick_scan(symbols: list[str] = None, progress: dict = None) -> dict:
                     processed += 1
                     continue
 
-                pred = predict_stock(feat)  # Uses default SIDEWAYS regime
+                pred = predict_stock(feat)
                 momentum = compute_momentum_score(feat)
                 vol_spike = compute_volume_spike_score(feat)
                 breakout = detect_all_breakouts(feat)
@@ -513,304 +489,8 @@ def run_quick_scan(symbols: list[str] = None, progress: dict = None) -> dict:
     }
 
 
-def run_full_scan_chunked(max_symbols: int = 0, retrain: bool = False,
-                          progress: dict = None) -> dict:
-    started_at = datetime.now().isoformat()
-    scan_date = datetime.now().strftime("%Y-%m-%d")
-    batch_size = _BATCH_SIZE
-    fetch_workers = _FETCH_WORKERS
-    analysis_workers = _ANALYSIS_WORKERS
-
-    scan_market = _imp_scanner()
-    _, clean_data = _imp_data()
-    compute_features, compute_momentum_score, compute_volume_spike_score = _imp_features()
-    predict_stock, train_models_fn, batch_download = _imp_predict()
-    detect_all_breakouts = _imp_breakout()
-    _, generate_explanation, rank_stocks = _imp_ranking()
-    get_stock_sentiment = _imp_sentiment()
-    detect_regime = _imp_regime()
-    generate_risk_recommendation = _imp_risk()
-    run_meta_strategy, get_strategy_status = _imp_meta()
-
-    def _enter_low_memory_mode(reason: str, progress_step: str | None = None) -> None:
-        nonlocal batch_size, fetch_workers, analysis_workers
-        batch_size = min(batch_size, 5)
-        fetch_workers = 1
-        analysis_workers = 1
-        logger.warning(
-            "Low-memory mode enabled: %s (chunk=%d, fetch-workers=%d, analysis-workers=%d)",
-            reason,
-            batch_size,
-            fetch_workers,
-            analysis_workers,
-        )
-        if progress_step and progress is not None:
-            progress["current_step"] = progress_step
-
-    def _persist_partial(predictions: list[dict]) -> dict:
-        rankings_local = rank_stocks(predictions) if predictions else {
-            "top_buys": [], "top_sells": [], "top_breakouts": [], "volume_movers": []
-        }
-        database.replace_watchlist(scan_date, _build_watchlist_items(rankings_local))
-        return rankings_local
-
-    def _analyse_symbol(sym: str, feat_df, regime_name: str):
-        try:
-            pred = predict_stock(feat_df, regime=regime_name)
-            momentum = compute_momentum_score(feat_df)
-            vol_spike = compute_volume_spike_score(feat_df)
-            breakout = detect_all_breakouts(feat_df)
-
-            rl_pred = {"signal": "HOLD", "rl_score": 0.5, "confidence": 0}
-            try:
-                from backend.rl_trading_agent import predict_with_rl
-                rl_pred = predict_with_rl(feat_df)
-            except Exception:
-                pass
-
-            sentiment_result = {"sentiment_score": 0.0, "signal": "NEUTRAL"}
-            try:
-                sentiment_result = get_stock_sentiment(sym)
-            except Exception:
-                pass
-
-            meta_result = run_meta_strategy(
-                symbol=sym,
-                df=feat_df,
-                ml_prediction=pred,
-                rl_prediction=rl_pred,
-                momentum_score=momentum,
-                breakout_result=breakout,
-                volume_spike_score=vol_spike,
-                sentiment_result=sentiment_result,
-                regime=regime_name,
-            )
-
-            risk_rec = {}
-            try:
-                risk_rec = generate_risk_recommendation(sym, float(feat_df["close"].iloc[-1]), feat_df)
-            except Exception:
-                pass
-
-            explanation_parts = [generate_explanation(
-                symbol=sym,
-                signal=pred["signal"],
-                ai_probability=pred["ai_probability"],
-                momentum_score=momentum,
-                breakout_score=breakout["score"],
-                volume_spike_score=vol_spike,
-                breakout_desc=breakout["description"],
-            )]
-            if meta_result.get("explanation"):
-                explanation_parts.append(meta_result["explanation"])
-
-            contributions = meta_result.get("strategy_contributions", {})
-            raw_confidence = pred["confidence"]
-            if raw_confidence == 0 and meta_result.get("final_score", 0) > 0:
-                raw_confidence = round(min(meta_result["final_score"], 1.0), 4)
-
-            return {
-                "symbol": sym,
-                "signal": meta_result.get("final_signal", pred["signal"]),
-                "confidence": raw_confidence,
-                "ai_probability": pred["ai_probability"],
-                "momentum_score": momentum,
-                "breakout_score": breakout["score"],
-                "volume_spike_score": vol_spike,
-                "opportunity_score": meta_result.get("final_score", 0.0),
-                "meta_score": meta_result.get("final_score", 0),
-                "meta_signal": meta_result.get("final_signal", "HOLD"),
-                "regime": regime_name,
-                "sentiment_score": contributions.get("sentiment", {}).get("score", 0),
-                "rl_score": contributions.get("rl_agent", {}).get("score", 0),
-                "explanation": " | ".join(explanation_parts),
-                "last_price": feat_df["close"].iloc[-1] if not feat_df.empty else 0,
-                "risk": risk_rec,
-            }
-        except Exception as e:
-            logger.warning("Pipeline failed for %s: %s", sym, e)
-            return None
-
-    logger.info(
-        "Starting chunked full scan (chunk=%d, train-sample=%d, fetch-workers=%d, analysis-workers=%d)",
-        batch_size,
-        _TRAIN_SAMPLE_STOCKS,
-        fetch_workers,
-        analysis_workers,
-    )
-    gc.collect()
-    if _check_memory("imports") > _MEMORY_WARN_MB:
-        _enter_low_memory_mode("high baseline memory", "Preparing low-memory scan mode...")
-
-    _update_progress(progress, "Scanning market & applying filters...", 5)
-    all_stocks, filtered_stocks = scan_market(max_symbols=max_symbols)
-    database.upsert_scanned_stocks(all_stocks)
-    symbols = [stock["symbol"] for stock in filtered_stocks]
-    all_stocks_count = len(all_stocks)
-    filtered_count = len(filtered_stocks)
-    del all_stocks, filtered_stocks
-    gc.collect()
-
-    if not symbols:
-        database.save_scan_log(started_at, datetime.now().isoformat(), all_stocks_count, 0, "no_stocks")
-        return {"status": "no_stocks", "rankings": {}}
-
-    try:
-        database.clear_predictions(scan_date)
-        database.replace_watchlist(scan_date, [])
-    except Exception:
-        pass
-
-    if retrain or not _models_exist():
-        _update_progress(progress, "Training ML models...", 10)
-        import random
-        train_sample = min(_TRAIN_SAMPLE_STOCKS, len(symbols))
-        if fetch_workers == 1:
-            train_sample = min(train_sample, 12)
-        train_syms = random.sample(symbols, train_sample)
-        train_data = {}
-        train_downloads = batch_download(train_syms, period="1y", max_workers=max(1, fetch_workers))
-        for sym, df in train_downloads.items():
-            clean_df = clean_data(df)
-            feat_df = compute_features(clean_df)
-            if not feat_df.empty:
-                train_data[sym] = feat_df
-            del clean_df, feat_df
-        if train_data:
-            train_models_fn(train_data)
-        del train_data, train_downloads
-        gc.collect()
-        if _check_memory("training") > _MEMORY_WARN_MB:
-            _enter_low_memory_mode(
-                "memory remained high after model training",
-                "Memory high after training, continuing in low-memory mode...",
-            )
-
-    _update_progress(progress, "Detecting market regime...", 20)
-    regime_info = {"regime": "SIDEWAYS", "confidence": 0.5}
-    try:
-        regime_info = detect_regime()
-    except Exception as e:
-        logger.warning("Regime detection failed, defaulting to SIDEWAYS: %s", e)
-
-    total_sym = len(symbols)
-    processed = 0
-    all_predictions = []
-    rankings = {"top_buys": [], "top_sells": [], "top_breakouts": [], "volume_movers": []}
-
-    for batch_start in range(0, total_sym, batch_size):
-        chunk_no = batch_start // batch_size + 1
-        batch_syms = symbols[batch_start : batch_start + batch_size]
-
-        _update_progress(
-            progress,
-            f"Downloading chunk {chunk_no} ({processed}/{total_sym})...",
-            25 + int(50 * processed / total_sym),
-            stocks_processed=processed,
-            stocks_total=total_sym,
-        )
-
-        batch_featured = {}
-        downloaded = batch_download(batch_syms, period="1y", max_workers=max(1, fetch_workers))
-        for sym in batch_syms:
-            try:
-                df = downloaded.get(sym)
-                if df is None or df.empty:
-                    continue
-                clean_df = clean_data(df)
-                if clean_df.empty:
-                    continue
-                database.save_stock_data(clean_df, sym)
-                feat_df = compute_features(clean_df)
-                if not feat_df.empty:
-                    batch_featured[sym] = feat_df
-                del clean_df, feat_df
-            except Exception as e:
-                logger.debug("Fetch/feature failed for %s: %s", sym, e)
-            finally:
-                processed += 1
-
-        _update_progress(
-            progress,
-            f"Analyzing chunk {chunk_no} ({processed}/{total_sym})...",
-            30 + int(50 * processed / total_sym),
-            stocks_processed=min(processed, total_sym),
-            stocks_total=total_sym,
-        )
-
-        chunk_predictions = []
-        if batch_featured:
-            with ThreadPoolExecutor(max_workers=max(1, analysis_workers)) as executor:
-                futures = {
-                    executor.submit(
-                        _analyse_symbol, sym, feat_df, regime_info.get("regime", "SIDEWAYS")
-                    ): sym
-                    for sym, feat_df in batch_featured.items()
-                }
-                for future in as_completed(futures):
-                    try:
-                        result = future.result()
-                    except Exception as e:
-                        logger.warning("Analysis worker failed for %s: %s", futures[future], e)
-                        continue
-                    if result:
-                        chunk_predictions.append(result)
-
-        if chunk_predictions:
-            all_predictions.extend(chunk_predictions)
-            database.save_predictions_chunk(chunk_predictions, date=scan_date)
-            rankings = _persist_partial(all_predictions)
-
-        del batch_featured, downloaded, chunk_predictions
-        gc.collect()
-        if _check_memory(f"chunk {chunk_no}") > _MEMORY_WARN_MB and (
-            batch_size > 5 or fetch_workers > 1 or analysis_workers > 1
-        ):
-            _enter_low_memory_mode(
-                f"memory pressure after chunk {chunk_no}",
-                f"High memory after chunk {chunk_no}, reducing parallelism...",
-            )
-
-    _update_progress(progress, "Saving final scan state...", 88, stocks_processed=processed, stocks_total=total_sym)
-    try:
-        status = get_strategy_status(regime_info.get("regime", "SIDEWAYS"))
-        database.save_meta_strategy_state(
-            regime=regime_info.get("regime", "SIDEWAYS"),
-            weights=status.get("weights", {}),
-            explanation=status.get("explanation", ""),
-        )
-    except Exception as e:
-        logger.warning("Failed to save meta-strategy state: %s", e)
-
-    rankings = _persist_partial(all_predictions)
-    finished_at = datetime.now().isoformat()
-    database.save_scan_log(
-        started_at,
-        finished_at,
-        stocks_scanned=all_stocks_count,
-        stocks_passed=filtered_count,
-        status="success",
-    )
-
-    _update_progress(progress, "Complete", 100, stocks_processed=processed, stocks_total=total_sym)
-    return {
-        "status": "success",
-        "stocks_scanned": all_stocks_count,
-        "stocks_passed_filter": filtered_count,
-        "predictions": len(all_predictions),
-        "rankings": {k: len(v) for k, v in rankings.items()},
-        "regime": regime_info,
-        "started_at": started_at,
-        "finished_at": finished_at,
-        "chunks_processed": (total_sym + batch_size - 1) // batch_size,
-    }
-
-
-run_full_scan = run_full_scan_chunked
-
-
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     database.init_db()
-    result = run_full_scan_chunked(max_symbols=30, retrain=True)
+    result = run_full_scan(max_symbols=30, retrain=True)
     print(result)

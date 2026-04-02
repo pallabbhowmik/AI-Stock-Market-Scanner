@@ -42,9 +42,10 @@ TRAIN_TEST_SPLIT = 0.8
 MIN_TRAINING_SAMPLES = 200
 
 # ─── Opportunity Scoring Weights ──────────────────────────────────────────────
-WEIGHT_AI_PREDICTION = 0.40
+# Increased AI weight since prediction threshold is now 0.65 (higher quality signals)
+WEIGHT_AI_PREDICTION = 0.45
 WEIGHT_MOMENTUM = 0.25
-WEIGHT_BREAKOUT = 0.20
+WEIGHT_BREAKOUT = 0.15
 WEIGHT_VOLUME_SPIKE = 0.15
 
 # ─── Meta-Strategy Default Weights ────────────────────────────────────────────

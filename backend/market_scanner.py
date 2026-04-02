@@ -4,6 +4,7 @@ Downloads stock universe from NSE, applies smart filters, and selects quality st
 """
 import logging
 import io
+import os
 import time
 from typing import Optional
 
@@ -16,7 +17,7 @@ from backend import config
 logger = logging.getLogger(__name__)
 
 # ── Batch download chunk size & throttle ────────────────────────────────
-_DOWNLOAD_CHUNK = 30          # symbols per yf.download() call (keep small for memory)
+_DOWNLOAD_CHUNK = int(os.getenv("DOWNLOAD_CHUNK", "30"))   # symbols per yf.download()
 _CHUNK_DELAY    = 2           # seconds between chunks (rate-limit guard)
 _MAX_RETRIES    = 3           # retries per chunk on failure
 _RETRY_BACKOFF  = 5           # base seconds for exponential back-off

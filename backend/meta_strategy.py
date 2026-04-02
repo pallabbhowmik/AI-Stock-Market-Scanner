@@ -22,6 +22,44 @@ from backend import config
 
 logger = logging.getLogger(__name__)
 
+# ─── Market Trend Cache ──────────────────────────────────────────────────────
+
+_market_trend_cache: dict = {}  # {"ts": datetime, "up": bool}
+
+def _is_market_trend_up() -> bool:
+    """
+    Quick check: is NIFTY50 above its 20-day SMA?
+    Cached for 30 minutes to avoid hammering yfinance.
+    Prevents buying individual stocks when the broad market is falling.
+    """
+    import time
+    now = time.time()
+    cached = _market_trend_cache.get("ts", 0)
+    if now - cached < 1800 and "up" in _market_trend_cache:
+        return _market_trend_cache["up"]
+
+    try:
+        import yfinance as yf
+        nifty = yf.download("^NSEI", period="2mo", interval="1d", progress=False)
+        if nifty is not None and len(nifty) >= 20:
+            close = nifty["Close"]
+            if hasattr(close, "iloc"):
+                last_close = float(close.iloc[-1])
+                sma_20 = float(close.tail(20).mean())
+                sma_50 = float(close.tail(min(50, len(close))).mean())
+                # Market is UP if price > 20-day SMA and 20-SMA > 50-SMA
+                trend_up = last_close > sma_20 and sma_20 >= sma_50 * 0.99
+                _market_trend_cache["ts"] = now
+                _market_trend_cache["up"] = trend_up
+                logger.debug("NIFTY50 trend: %s (close=%.0f, sma20=%.0f, sma50=%.0f)",
+                             "UP" if trend_up else "DOWN", last_close, sma_20, sma_50)
+                return trend_up
+    except Exception as e:
+        logger.debug("Market trend check failed: %s", e)
+
+    return True  # Assume OK if check fails
+
+
 # ─── Strategy Identifiers ────────────────────────────────────────────────────
 
 STRATEGIES = [
@@ -320,6 +358,17 @@ def compute_meta_signal(
     elif regime == "BULL" and final_signal == "SELL" and final_score > 0.30:
         # In bull markets, require very strong conviction for sell
         final_signal = "HOLD"
+
+    # ── Market Trend Filter (NIFTY50 health check) ──
+    # Don't buy individual stocks when the market index itself is falling
+    if final_signal == "BUY":
+        try:
+            market_ok = _is_market_trend_up()
+            if not market_ok and final_score < 0.75:
+                # Market is falling — only keep very high conviction buys
+                final_signal = "HOLD"
+        except Exception:
+            pass  # If trend check fails, don't block the signal
 
     # Confidence from agreement
     agreement = max(buy_count, sell_count, hold_count) / max(total_strategies, 1)
