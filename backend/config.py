@@ -68,6 +68,12 @@ MAX_POSITIONS = 10
 MAX_POSITION_SIZE_PCT = 0.10
 STOP_LOSS_METHOD = "atr"
 RISK_REWARD_RATIO = 2.0
+TRAILING_STOP_TRIGGER_ATR = 1.5
+TRAILING_STOP_DISTANCE_ATR = 1.0
+VOLATILITY_SCALING = True
+VOLATILITY_SCALE_BASE = 0.02
+MAX_DAILY_LOSS_PCT = 0.03
+MAX_SECTOR_POSITIONS = 3
 
 # ─── Ranking ──────────────────────────────────────────────────────────────────
 TOP_BUY_COUNT = 20
@@ -87,6 +93,7 @@ API_HOST = "0.0.0.0"
 API_PORT = int(os.getenv("PORT", "8000"))
 _cors_raw = os.getenv("CORS_ORIGINS", "http://localhost:3000")
 CORS_ORIGINS = [o.strip() for o in _cors_raw.split(",") if o.strip()]
+CORS_ALLOW_ORIGIN_REGEX = os.getenv("CORS_ALLOW_ORIGIN_REGEX", r"https://.*\.vercel\.app")
 
 # ─── Intraday Trading ──────────────────────────────────────────────────────────
 INTRADAY_INTERVALS = ["5m", "15m"]         # candle intervals to fetch
