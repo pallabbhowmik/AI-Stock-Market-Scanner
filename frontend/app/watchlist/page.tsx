@@ -20,6 +20,7 @@ const CATEGORY_META: Record<string, { icon: React.ElementType; color: string; bg
   top_sells: { icon: TrendingDown, color: "text-red-400", bg: "bg-red-500/10", title: "Top Sell / Avoid", desc: "Stocks showing bearish signals — consider avoiding" },
   top_breakouts: { icon: Rocket, color: "text-cyan-400", bg: "bg-cyan-500/10", title: "Breakout Candidates", desc: "Stocks breaking resistance, volume surges, or MA crossovers" },
   volume_movers: { icon: BarChart3, color: "text-purple-400", bg: "bg-purple-500/10", title: "Volume Movers", desc: "Unusual volume activity — indicates institutional interest" },
+  top_analyzed: { icon: BarChart3, color: "text-indigo-400", bg: "bg-indigo-500/10", title: "Top Analyzed", desc: "Highest-scoring stocks across all signals — best overall opportunities" },
 };
 
 function SignalBadge({ signal }: { signal: string }) {

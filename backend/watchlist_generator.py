@@ -232,21 +232,38 @@ def run_full_scan(max_symbols: int = 0, retrain: bool = False,
 
     all_predictions = []
     done_count = 0
+    fail_count = 0
+    fail_reasons = []
     with ThreadPoolExecutor(max_workers=_ANALYSIS_WORKERS) as executor:
         futures = {executor.submit(_analyze_stock, item): item[0]
                    for item in featured_data.items()}
         for future in as_completed(futures):
+            sym = futures[future]
             result = future.result()
             if result is not None:
                 all_predictions.append(result)
+            else:
+                fail_count += 1
+                fail_reasons.append(sym)
             done_count += 1
             _update_progress(progress, f"Analyzing stocks… ({done_count}/{_total_stocks})",
                              55 + int(30 * done_count / _total_stocks),
                              stocks_processed=done_count, stocks_total=_total_stocks)
 
+    if fail_count > 0:
+        logger.warning("Analysis failed for %d/%d stocks: %s",
+                       fail_count, _total_stocks,
+                       ", ".join(fail_reasons[:20]))
+
     # ── Step 13a: Save predictions ──
     _update_progress(progress, "Saving predictions…", 88)
-    logger.info("Step 13a: Saving predictions...")
+    logger.info("Step 13a: Saving %d predictions...", len(all_predictions))
+    # Log signal distribution for debugging
+    signal_counts = {}
+    for p in all_predictions:
+        sig = p.get("signal", "HOLD")
+        signal_counts[sig] = signal_counts.get(sig, 0) + 1
+    logger.info("Signal distribution: %s", signal_counts)
     database.save_predictions(all_predictions)
 
     # ── Step 13b: Save meta-strategy state ──
@@ -278,6 +295,13 @@ def run_full_scan(max_symbols: int = 0, retrain: bool = False,
                 "explanation": item.get("explanation", ""),
                 "rank": item.get("rank", 0),
             })
+    logger.info("Watchlist items: %d (buys=%d, sells=%d, breakouts=%d, vol=%d, analyzed=%d)",
+                len(watchlist_items),
+                len(rankings.get("top_buys", [])),
+                len(rankings.get("top_sells", [])),
+                len(rankings.get("top_breakouts", [])),
+                len(rankings.get("volume_movers", [])),
+                len(rankings.get("top_analyzed", [])))
     database.save_watchlist(watchlist_items)
 
     finished_at = datetime.now().isoformat()

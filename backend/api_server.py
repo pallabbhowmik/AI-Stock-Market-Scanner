@@ -266,6 +266,7 @@ async def watchlist_categories():
             {"id": "top_sells", "name": "Top Sell Opportunities", "color": "red"},
             {"id": "top_breakouts", "name": "Top Breakout Stocks", "color": "blue"},
             {"id": "volume_movers", "name": "High Volume Movers", "color": "purple"},
+            {"id": "top_analyzed", "name": "Top Analyzed Stocks", "color": "indigo"},
         ]
     }
 

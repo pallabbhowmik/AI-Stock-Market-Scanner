@@ -80,6 +80,7 @@ TOP_BUY_COUNT = 20
 TOP_SELL_COUNT = 10
 TOP_BREAKOUT_COUNT = 10
 TOP_VOLUME_MOVERS_COUNT = 10
+TOP_ANALYZED_COUNT = 20
 
 # ─── Scheduler ────────────────────────────────────────────────────────────────
 SCAN_INTERVAL_MINUTES = 15

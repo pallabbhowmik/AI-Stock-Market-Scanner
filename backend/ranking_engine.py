@@ -92,13 +92,14 @@ def rank_stocks(predictions: list[dict]) -> dict:
     - Top Sell Opportunities
     - Top Breakout Stocks
     - High Volume Movers
+    - Top Analyzed (all signals, by opportunity score — ensures watchlist is never empty)
 
     Input: list of prediction dicts with keys:
         symbol, signal, confidence, ai_probability, momentum_score,
         breakout_score, volume_spike_score, opportunity_score, explanation
     """
     if not predictions:
-        return {"top_buys": [], "top_sells": [], "top_breakouts": [], "volume_movers": []}
+        return {"top_buys": [], "top_sells": [], "top_breakouts": [], "volume_movers": [], "top_analyzed": []}
 
     df = pd.DataFrame(predictions)
 
@@ -126,12 +127,20 @@ def rank_stocks(predictions: list[dict]) -> dict:
     for rank, (_, row) in enumerate(vol_movers.iterrows(), 1):
         volume_movers.append({**row.to_dict(), "rank": rank, "category": "volume_movers"})
 
-    logger.info("Rankings: %d buys, %d sells, %d breakouts, %d vol movers",
-                len(top_buys), len(top_sells), len(top_breakouts), len(volume_movers))
+    # Top Analyzed: highest opportunity/meta score regardless of signal
+    score_col = "meta_score" if "meta_score" in df.columns else "opportunity_score"
+    analyzed = df.nlargest(config.TOP_ANALYZED_COUNT, score_col)
+    top_analyzed = []
+    for rank, (_, row) in enumerate(analyzed.iterrows(), 1):
+        top_analyzed.append({**row.to_dict(), "rank": rank, "category": "top_analyzed"})
+
+    logger.info("Rankings: %d buys, %d sells, %d breakouts, %d vol movers, %d analyzed",
+                len(top_buys), len(top_sells), len(top_breakouts), len(volume_movers), len(top_analyzed))
 
     return {
         "top_buys": top_buys,
         "top_sells": top_sells,
         "top_breakouts": top_breakouts,
         "volume_movers": volume_movers,
+        "top_analyzed": top_analyzed,
     }

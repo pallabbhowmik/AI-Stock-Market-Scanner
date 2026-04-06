@@ -585,6 +585,7 @@ export default function DashboardPage() {
   const [overview, setOverview] = useState<Overview | null>(null);
   const [buys, setBuys] = useState<Prediction[]>([]);
   const [sells, setSells] = useState<Prediction[]>([]);
+  const [topAnalyzed, setTopAnalyzed] = useState<Prediction[]>([]);
   const [meta, setMeta] = useState<MetaStrategyStatus | null>(null);
   const [training, setTraining] = useState<TrainingStatus | null>(null);
   const [retraining, setRetraining] = useState(false);
@@ -602,14 +603,16 @@ export default function DashboardPage() {
     try {
       setLoading(true);
       setError(null);
-      const [ov, buyList, sellList] = await Promise.all([
+      const [ov, buyList, sellList, allList] = await Promise.all([
         api.getOverview(),
         api.getPredictions("BUY"),
         api.getPredictions("SELL"),
+        api.getPredictions(),
       ]);
       setOverview(ov);
       setBuys(buyList.slice(0, 20));
       setSells(sellList.slice(0, 10));
+      setTopAnalyzed(allList.slice(0, 20));
       setSchedulerOn(ov.scheduler?.running ?? false);
 
       api.getMetaStrategy().then(setMeta).catch(() => {});
@@ -890,6 +893,15 @@ export default function DashboardPage() {
         title="🔴 Top Sell / Avoid"
         emptyMsg="No sell signals yet. Run a Full Scan first."
       />
+
+      {/* Top Analyzed — always shown when buys & sells are empty */}
+      {buys.length === 0 && sells.length === 0 && topAnalyzed.length > 0 && (
+        <PredictionTable
+          predictions={topAnalyzed}
+          title="📊 Top Analyzed Stocks"
+          emptyMsg=""
+        />
+      )}
     </div>
   );
 }
