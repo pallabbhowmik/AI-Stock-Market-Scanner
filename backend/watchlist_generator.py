@@ -5,11 +5,12 @@ Orchestrates the full 13-module AI trading pipeline and generates the daily watc
 import gc
 import logging
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
 from backend import config, database
 from backend.market_scanner import scan_market
-from backend.data_pipeline import fetch_daily_data, clean_data
+from backend.data_pipeline import fetch_daily_data, fetch_batch_daily, clean_data
 from backend.feature_engineering import compute_features, compute_momentum_score, compute_volume_spike_score
 from backend.prediction_engine import predict_stock, train_models
 from backend.breakout_detector import detect_all_breakouts
@@ -75,33 +76,45 @@ def run_full_scan(max_symbols: int = 0, retrain: bool = False,
         database.save_scan_log(started_at, datetime.now().isoformat(), len(all_stocks), 0, "no_stocks")
         return {"status": "no_stocks", "rankings": {}}
 
-    # ── Step 3: Fetch data ──
+    # ── Step 3: Fetch data (threaded) ──
     _update_progress(progress, "Downloading price history…", 15, stocks_total=len(symbols))
     logger.info("Step 3: Fetching historical data for %d stocks (period=%s)...", len(symbols), _FETCH_PERIOD)
+    _FETCH_WORKERS = int(os.getenv("FETCH_WORKERS", "4"))
+    raw_data = fetch_batch_daily(symbols, period=_FETCH_PERIOD, max_workers=_FETCH_WORKERS)
     stock_data = {}
-    for i, sym in enumerate(symbols):
+    for sym, df in raw_data.items():
         try:
-            df = fetch_daily_data(sym, period=_FETCH_PERIOD)
-            if not df.empty:
-                df = clean_data(df)
-                database.save_stock_data(df, sym)
-                stock_data[sym] = df
+            df = clean_data(df)
+            database.save_stock_data(df, sym)
+            stock_data[sym] = df
         except Exception as e:
-            logger.debug("Data fetch failed for %s: %s", sym, e)
-        _update_progress(progress, "Downloading price history…",
-                         15 + int(15 * (i + 1) / len(symbols)),
-                         stocks_processed=i + 1, stocks_total=len(symbols))
+            logger.debug("Clean/save failed for %s: %s", sym, e)
+    del raw_data
+    _update_progress(progress, "Downloading price history…", 30,
+                     stocks_processed=len(stock_data), stocks_total=len(symbols))
     logger.info("Got data for %d stocks", len(stock_data))
     gc.collect()
 
-    # ── Step 4: Technical indicators ──
+    # ── Step 4: Technical indicators (threaded) ──
     _update_progress(progress, "Computing technical indicators…", 32)
     logger.info("Step 4: Computing technical indicators...")
+    _ANALYSIS_WORKERS = int(os.getenv("ANALYSIS_WORKERS", "3"))
+
+    def _compute_feat(sym_df):
+        sym, df = sym_df
+        try:
+            featured = compute_features(df)
+            if not featured.empty:
+                return sym, featured
+        except Exception as e:
+            logger.debug("Feature computation failed for %s: %s", sym, e)
+        return sym, None
+
     featured_data = {}
-    for sym, df in stock_data.items():
-        featured = compute_features(df)
-        if not featured.empty:
-            featured_data[sym] = featured
+    with ThreadPoolExecutor(max_workers=_ANALYSIS_WORKERS) as executor:
+        for sym, feat in executor.map(_compute_feat, stock_data.items()):
+            if feat is not None:
+                featured_data[sym] = feat
     # Free raw data — we only need featured from here
     del stock_data
     gc.collect()
@@ -136,66 +149,49 @@ def run_full_scan(max_symbols: int = 0, retrain: bool = False,
     except Exception as e:
         logger.warning("Regime detection failed, defaulting to SIDEWAYS: %s", e)
 
-    # ── Steps 5b-9,11-12: Per-stock analysis ──
+    # ── Steps 5b-9,11-12: Per-stock analysis (threaded) ──
     _update_progress(progress, "Analyzing stocks…", 55,
                      stocks_processed=0, stocks_total=len(featured_data))
     logger.info("Steps 5-12: Running per-stock 13-module pipeline...")
-    all_predictions = []
     _total_stocks = len(featured_data)
+    _regime = regime_info.get("regime", "SIDEWAYS")
 
-    for _idx, (sym, df) in enumerate(featured_data.items()):
+    def _analyze_stock(sym_df):
+        sym, df = sym_df
         try:
-            # Step 5b: ML prediction
             pred = predict_stock(df)
-
-            # Step 4 extras: momentum & volume
             momentum = compute_momentum_score(df)
             vol_spike = compute_volume_spike_score(df)
-
-            # Step 6: Breakout detection
             breakout = detect_all_breakouts(df)
 
-            # Step 7b: RL prediction
             rl_pred = {"signal": "HOLD", "rl_score": 0.5, "confidence": 0}
             try:
                 rl_pred = predict_with_rl(df)
-            except Exception as e:
-                logger.debug("RL prediction skipped for %s: %s", sym, e)
+            except Exception:
+                pass
 
-            # Step 8: Sentiment analysis
             sentiment_result = {"sentiment_score": 0.0, "signal": "NEUTRAL"}
             try:
                 sentiment_result = get_stock_sentiment(sym)
-            except Exception as e:
-                logger.debug("Sentiment skipped for %s: %s", sym, e)
+            except Exception:
+                pass
 
-            # Step 11: Meta-AI strategy — combines ML, RL, momentum, mean-rev, volume, sentiment
             meta_result = run_meta_strategy(
-                symbol=sym,
-                df=df,
-                ml_prediction=pred,
-                rl_prediction=rl_pred,
-                momentum_score=momentum,
-                breakout_result=breakout,
-                volume_spike_score=vol_spike,
-                sentiment_result=sentiment_result,
-                regime=regime_info.get("regime", "SIDEWAYS"),
+                symbol=sym, df=df, ml_prediction=pred,
+                rl_prediction=rl_pred, momentum_score=momentum,
+                breakout_result=breakout, volume_spike_score=vol_spike,
+                sentiment_result=sentiment_result, regime=_regime,
             )
 
-            # Step 12: Risk management
             risk_rec = {}
             try:
                 last_price = float(df["close"].iloc[-1])
                 risk_rec = generate_risk_recommendation(sym, last_price, df)
-            except Exception as e:
-                logger.debug("Risk calc skipped for %s: %s", sym, e)
+            except Exception:
+                pass
 
-            # Use meta-strategy score as the primary opportunity score
             opp_score = meta_result.get("final_score", 0.0)
-
-            # Build combined explanation
-            explanation_parts = []
-            explanation_parts.append(
+            explanation_parts = [
                 generate_explanation(
                     symbol=sym, signal=pred["signal"],
                     ai_probability=pred["ai_probability"],
@@ -203,17 +199,16 @@ def run_full_scan(max_symbols: int = 0, retrain: bool = False,
                     volume_spike_score=vol_spike,
                     breakout_desc=breakout["description"],
                 )
-            )
+            ]
             if meta_result.get("explanation"):
                 explanation_parts.append(meta_result["explanation"])
-            explanation = " | ".join(explanation_parts)
 
             contributions = meta_result.get("strategy_contributions", {})
-            # Use meta-strategy confidence when ML models unavailable
             raw_confidence = pred["confidence"]
             if raw_confidence == 0 and meta_result.get("final_score", 0) > 0:
                 raw_confidence = round(min(meta_result["final_score"], 1.0), 4)
-            all_predictions.append({
+
+            return {
                 "symbol": sym,
                 "signal": meta_result.get("final_signal", pred["signal"]),
                 "confidence": raw_confidence,
@@ -224,18 +219,30 @@ def run_full_scan(max_symbols: int = 0, retrain: bool = False,
                 "opportunity_score": opp_score,
                 "meta_score": meta_result.get("final_score", 0),
                 "meta_signal": meta_result.get("final_signal", "HOLD"),
-                "regime": regime_info.get("regime", "SIDEWAYS"),
+                "regime": _regime,
                 "sentiment_score": contributions.get("sentiment", {}).get("score", 0),
                 "rl_score": contributions.get("rl_agent", {}).get("score", 0),
-                "explanation": explanation,
+                "explanation": " | ".join(explanation_parts),
                 "last_price": df["close"].iloc[-1] if not df.empty else 0,
                 "risk": risk_rec,
-            })
+            }
         except Exception as e:
             logger.warning("Pipeline failed for %s: %s", sym, e)
-        _update_progress(progress, f"Analyzing stocks… ({_idx+1}/{_total_stocks})",
-                         55 + int(30 * (_idx + 1) / _total_stocks),
-                         stocks_processed=_idx + 1, stocks_total=_total_stocks)
+            return None
+
+    all_predictions = []
+    done_count = 0
+    with ThreadPoolExecutor(max_workers=_ANALYSIS_WORKERS) as executor:
+        futures = {executor.submit(_analyze_stock, item): item[0]
+                   for item in featured_data.items()}
+        for future in as_completed(futures):
+            result = future.result()
+            if result is not None:
+                all_predictions.append(result)
+            done_count += 1
+            _update_progress(progress, f"Analyzing stocks… ({done_count}/{_total_stocks})",
+                             55 + int(30 * done_count / _total_stocks),
+                             stocks_processed=done_count, stocks_total=_total_stocks)
 
     # ── Step 13a: Save predictions ──
     _update_progress(progress, "Saving predictions…", 88)
@@ -328,21 +335,17 @@ def run_quick_scan(symbols: list[str] = None, progress: dict = None) -> dict:
     logger.info("Quick scan: %d symbols", len(symbols))
 
     _update_progress(progress, "Downloading price data…", 10, stocks_total=len(symbols))
+    _FETCH_WORKERS = int(os.getenv("FETCH_WORKERS", "4"))
+    raw_data = fetch_batch_daily(symbols, period="3mo", max_workers=_FETCH_WORKERS)
     stock_data = {}
-    for i, sym in enumerate(symbols):
+    for sym, df in raw_data.items():
         try:
-            df = fetch_daily_data(sym, period="3mo")
-            if not df.empty:
-                df = clean_data(df)
-                stock_data[sym] = df
-        except Exception as e:
-            logger.warning("Data fetch failed for %s: %s", sym, e)
-        # Small delay to avoid yfinance rate-limiting
-        if (i + 1) % 5 == 0:
-            time.sleep(1)
-        _update_progress(progress, "Downloading price data…",
-                         10 + int(30 * (i + 1) / len(symbols)),
-                         stocks_processed=i + 1, stocks_total=len(symbols))
+            stock_data[sym] = clean_data(df)
+        except Exception:
+            pass
+    del raw_data
+    _update_progress(progress, "Downloading price data…", 40,
+                     stocks_processed=len(stock_data), stocks_total=len(symbols))
 
     _update_progress(progress, "Computing indicators…", 42)
     featured_data = {sym: compute_features(df) for sym, df in stock_data.items()}
@@ -352,37 +355,52 @@ def run_quick_scan(symbols: list[str] = None, progress: dict = None) -> dict:
 
     _update_progress(progress, "Generating predictions…", 50,
                      stocks_total=len(featured_data))
-    all_predictions = []
+    _ANALYSIS_WORKERS = int(os.getenv("ANALYSIS_WORKERS", "3"))
     _total = len(featured_data)
-    for _idx, (sym, df) in enumerate(featured_data.items()):
-        pred = predict_stock(df)
-        momentum = compute_momentum_score(df)
-        vol_spike = compute_volume_spike_score(df)
-        breakout = detect_all_breakouts(df)
 
-        opp_score = compute_opportunity_score(
-            pred["ai_probability"], momentum, breakout["score"], vol_spike
-        )
-        explanation = generate_explanation(
-            sym, pred["signal"], pred["ai_probability"],
-            momentum, breakout["score"], vol_spike, breakout["description"],
-        )
+    def _analyze_quick(sym_df):
+        sym, df = sym_df
+        try:
+            pred = predict_stock(df)
+            momentum = compute_momentum_score(df)
+            vol_spike = compute_volume_spike_score(df)
+            breakout = detect_all_breakouts(df)
+            opp_score = compute_opportunity_score(
+                pred["ai_probability"], momentum, breakout["score"], vol_spike
+            )
+            explanation = generate_explanation(
+                sym, pred["signal"], pred["ai_probability"],
+                momentum, breakout["score"], vol_spike, breakout["description"],
+            )
+            return {
+                "symbol": sym,
+                "signal": pred["signal"],
+                "confidence": pred["confidence"],
+                "ai_probability": pred["ai_probability"],
+                "momentum_score": momentum,
+                "breakout_score": breakout["score"],
+                "volume_spike_score": vol_spike,
+                "opportunity_score": opp_score,
+                "explanation": explanation,
+                "last_price": df["close"].iloc[-1] if not df.empty else 0,
+            }
+        except Exception as e:
+            logger.warning("Quick analysis failed for %s: %s", sym, e)
+            return None
 
-        all_predictions.append({
-            "symbol": sym,
-            "signal": pred["signal"],
-            "confidence": pred["confidence"],
-            "ai_probability": pred["ai_probability"],
-            "momentum_score": momentum,
-            "breakout_score": breakout["score"],
-            "volume_spike_score": vol_spike,
-            "opportunity_score": opp_score,
-            "explanation": explanation,
-            "last_price": df["close"].iloc[-1] if not df.empty else 0,
-        })
-        _update_progress(progress, f"Analyzing stocks… ({_idx+1}/{_total})",
-                         50 + int(35 * (_idx + 1) / _total),
-                         stocks_processed=_idx + 1, stocks_total=_total)
+    all_predictions = []
+    done_count = 0
+    with ThreadPoolExecutor(max_workers=_ANALYSIS_WORKERS) as executor:
+        futures = {executor.submit(_analyze_quick, item): item[0]
+                   for item in featured_data.items()}
+        for future in as_completed(futures):
+            result = future.result()
+            if result is not None:
+                all_predictions.append(result)
+            done_count += 1
+            _update_progress(progress, f"Analyzing stocks… ({done_count}/{_total})",
+                             50 + int(35 * done_count / _total),
+                             stocks_processed=done_count, stocks_total=_total)
 
     _update_progress(progress, "Saving & ranking…", 90)
     database.save_predictions(all_predictions)

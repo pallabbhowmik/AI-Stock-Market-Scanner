@@ -13,7 +13,7 @@ import threading
 from datetime import datetime, timedelta
 
 from backend import config, database
-from backend.data_pipeline import fetch_daily_data, clean_data
+from backend.data_pipeline import fetch_daily_data, fetch_batch_daily, clean_data
 from backend.feature_engineering import compute_features
 from backend.prediction_engine import train_models, predict_stock, _load
 from backend.rl_trading_agent import train_rl_agent
@@ -94,19 +94,19 @@ def collect_latest_data(max_symbols: int = 0) -> dict[str, any]:
         symbols = symbols[:limit]
 
     stock_data = {}
-    for sym in symbols:
+    _FETCH_WORKERS = int(os.getenv("FETCH_WORKERS", "4"))
+    raw_data = fetch_batch_daily(symbols, period=_TRAIN_FETCH_PERIOD, max_workers=_FETCH_WORKERS)
+    for sym, df in raw_data.items():
         try:
-            df = fetch_daily_data(sym, period=_TRAIN_FETCH_PERIOD)
-            if not df.empty:
-                df = clean_data(df)
-                database.save_stock_data(df, sym)
-                stock_data[sym] = df
+            df = clean_data(df)
+            database.save_stock_data(df, sym)
+            stock_data[sym] = df
         except Exception as e:
-            logger.debug("Data fetch failed for %s: %s", sym, e)
+            logger.debug("Clean/save failed for %s: %s", sym, e)
+    del raw_data
 
     logger.info("Collected data for %d / %d stocks", len(stock_data), len(symbols))
     gc.collect()
-    return stock_data
     return stock_data
 
 

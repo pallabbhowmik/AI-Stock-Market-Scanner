@@ -41,6 +41,33 @@ def _load(name: str):
         return pickle.load(f)
 
 
+# ─── Model Cache (load once, reuse across all predict_stock calls) ───────────
+_model_cache: dict = {}
+_cache_mtime: dict = {}
+
+
+def _load_cached(name: str):
+    """Load a model/artifact from disk, caching in memory.
+    Returns cached copy if file hasn't changed since last load."""
+    path = _model_path(name)
+    if not os.path.exists(path):
+        return None
+    mtime = os.path.getmtime(path)
+    if name in _model_cache and _cache_mtime.get(name) == mtime:
+        return _model_cache[name]
+    with open(path, "rb") as f:
+        obj = pickle.load(f)
+    _model_cache[name] = obj
+    _cache_mtime[name] = mtime
+    return obj
+
+
+def clear_model_cache():
+    """Clear the in-memory model cache (call after retraining)."""
+    _model_cache.clear()
+    _cache_mtime.clear()
+
+
 # ─── Model Definitions ──────────────────────────────────────────────────────
 
 def _create_models() -> dict:
@@ -128,6 +155,9 @@ def train_models(all_data: dict[str, pd.DataFrame]) -> dict:
     # Save ensemble metadata
     _save({n: {"accuracy": r["accuracy"], "auc": r["auc"]} for n, r in results.items()}, "ensemble_meta")
 
+    # Invalidate cached models so predict_stock picks up the new ones
+    clear_model_cache()
+
     return results
 
 
@@ -136,9 +166,9 @@ def predict_stock(df: pd.DataFrame) -> dict:
     Predict direction for a single stock using the ensemble.
     Returns {signal, confidence, ai_probability, model_votes}.
     """
-    feature_cols = _load("feature_cols")
-    scaler = _load("scaler")
-    meta = _load("ensemble_meta")
+    feature_cols = _load_cached("feature_cols")
+    scaler = _load_cached("scaler")
+    meta = _load_cached("ensemble_meta")
 
     if feature_cols is None or scaler is None or meta is None:
         return {"signal": "HOLD", "confidence": 0, "ai_probability": 0.5}
@@ -163,7 +193,7 @@ def predict_stock(df: pd.DataFrame) -> dict:
     model_votes = {}
 
     for name in meta:
-        model = _load(name)
+        model = _load_cached(name)
         if model is None:
             continue
         prob = model.predict_proba(X)[0, 1]

@@ -122,13 +122,13 @@ def fetch_multi_timeframe(symbol: str) -> dict:
 
 
 def fetch_batch_daily(symbols: list[str], period: str = "1y",
-                      max_workers: int = 2) -> dict[str, pd.DataFrame]:
+                      max_workers: int = 4) -> dict[str, pd.DataFrame]:
     """Fetch daily data for a batch of symbols using threading with rate-limit delay."""
     results = {}
 
     def _fetch(sym):
         df = fetch_daily_data(sym, period=period)
-        time.sleep(0.5)   # gentle throttle per request
+        time.sleep(0.2)   # gentle throttle per request
         return sym, df
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
