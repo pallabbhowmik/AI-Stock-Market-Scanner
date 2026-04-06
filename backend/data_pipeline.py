@@ -2,11 +2,6 @@
 Data Pipeline
 Fetches historical OHLCV data for filtered stocks using yfinance.
 Supports multi-timeframe data (daily, hourly, 5-min).
-
-Improvements:
-- Batch multi-ticker download for 3-5x faster fetching
-- Outlier detection in clean_data
-- Better error handling and retry logic
 """
 import logging
 import time
@@ -127,75 +122,28 @@ def fetch_multi_timeframe(symbol: str) -> dict:
 
 
 def fetch_batch_daily(symbols: list[str], period: str = "1y",
-                      max_workers: int = 5) -> dict[str, pd.DataFrame]:
+                      max_workers: int = 2) -> dict[str, pd.DataFrame]:
     """Fetch daily data for a batch of symbols using threading with rate-limit delay."""
     results = {}
 
     def _fetch(sym):
         df = fetch_daily_data(sym, period=period)
-        time.sleep(0.3)
+        time.sleep(0.5)   # gentle throttle per request
         return sym, df
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = [executor.submit(_fetch, s) for s in symbols]
         for future in as_completed(futures):
-            try:
-                sym, df = future.result()
-                if not df.empty:
-                    results[sym] = df
-            except Exception as e:
-                logger.debug("Batch fetch error: %s", e)
+            sym, df = future.result()
+            if not df.empty:
+                results[sym] = df
 
     logger.info("Fetched daily data for %d / %d symbols", len(results), len(symbols))
     return results
 
 
-def batch_download_daily(symbols: list[str], period: str = "1y",
-                         max_workers: Optional[int] = None) -> dict[str, pd.DataFrame]:
-    """
-    Download daily data for multiple symbols in one yfinance call.
-    This is 3-5x faster than downloading one by one.
-    """
-    import yfinance as yf
-
-    tickers = [s if "." in s else f"{s}.NS" for s in symbols]
-    symbol_map = {t: s for t, s in zip(tickers, symbols)}
-
-    try:
-        raw = yf.download(tickers, period=period, interval="1d",
-                          group_by="ticker", progress=False, threads=True)
-    except Exception as e:
-        logger.warning("Batch download failed, falling back to individual: %s", e)
-        return fetch_batch_daily(symbols, period=period, max_workers=max_workers or 5)
-
-    results = {}
-    for ticker, symbol in symbol_map.items():
-        try:
-            if len(tickers) == 1:
-                df = raw.copy()
-            else:
-                if ticker not in raw.columns.get_level_values(0):
-                    continue
-                df = raw[ticker].copy()
-
-            df = df.reset_index()
-            df.columns = [str(c).lower() for c in df.columns]
-            if "date" not in df.columns and "datetime" in df.columns:
-                df = df.rename(columns={"datetime": "date"})
-            df["symbol"] = symbol
-            df["date"] = pd.to_datetime(df["date"]).dt.tz_localize(None)
-            df = df.dropna(subset=["close"])
-            if not df.empty:
-                results[symbol] = df[["symbol", "date", "open", "high", "low", "close", "volume"]]
-        except Exception as e:
-            logger.debug("Error processing batch data for %s: %s", symbol, e)
-
-    logger.info("Batch downloaded %d / %d symbols", len(results), len(symbols))
-    return results
-
-
 def clean_data(df: pd.DataFrame) -> pd.DataFrame:
-    """Clean OHLCV data: fill gaps, remove outliers, validate."""
+    """Clean OHLCV data: fill gaps, remove outliers."""
     if df.empty:
         return df
 
@@ -208,15 +156,6 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     df[price_cols] = df[price_cols].ffill().bfill()
     df["volume"] = df["volume"].fillna(0).astype(int)
     df = df.dropna(subset=["close"])
-
-    # Remove price outliers: filter rows where close changed > 50% in one day
-    if len(df) > 5:
-        pct_change = df["close"].pct_change().abs()
-        df = df[pct_change.fillna(0) < 0.50].reset_index(drop=True)
-
-    # Ensure OHLC consistency: high >= close >= low
-    df["high"] = df[["open", "high", "close"]].max(axis=1)
-    df["low"] = df[["open", "low", "close"]].min(axis=1)
 
     return df
 

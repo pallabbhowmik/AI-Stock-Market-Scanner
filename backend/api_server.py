@@ -793,10 +793,10 @@ async def paper_auto_execute():
 
 @app.post("/api/paper/manage-positions")
 async def paper_manage_positions():
-    """Review open positions: apply trailing stops, time-based exits, hard stops."""
+    """Review open positions and apply exit rules (trailing stop, time exit, hard stop)."""
     from backend.paper_trading import manage_open_positions
-    results = manage_open_positions()
-    return {"exits": len(results), "trades": results}
+    exits = manage_open_positions()
+    return {"exits": len(exits), "trades": exits}
 
 
 @app.post("/api/paper/reset")

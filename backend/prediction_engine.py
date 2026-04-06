@@ -9,11 +9,18 @@ import pickle
 
 import numpy as np
 import pandas as pd
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import accuracy_score, roc_auc_score
+import xgboost as xgb
 
 from backend import config
 from backend.feature_engineering import get_feature_columns
 
 logger = logging.getLogger(__name__)
+
+# Limit parallel jobs on low-memory hosts (Render free = 512 MB)
+_N_JOBS = int(os.getenv("ML_N_JOBS", "1"))
 
 
 def _model_path(name: str) -> str:
@@ -34,39 +41,22 @@ def _load(name: str):
         return pickle.load(f)
 
 
-# ─── Model Cache (avoid re-loading pickles on every predict call) ────────
-_model_cache: dict = {}
-
-
-def _load_cached(name: str):
-    """Load a pickle file, returning cached version if available."""
-    if name not in _model_cache:
-        _model_cache[name] = _load(name)
-    return _model_cache[name]
-
-
-def clear_model_cache():
-    """Clear the model cache (call after retraining)."""
-    _model_cache.clear()
-
-
 # ─── Model Definitions ──────────────────────────────────────────────────────
 
 def _create_models() -> dict:
-    from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
-    import xgboost as xgb
     return {
         "RandomForest": RandomForestClassifier(
             n_estimators=100, max_depth=8, min_samples_split=10,
-            min_samples_leaf=5, random_state=42, n_jobs=1,
+            min_samples_leaf=5, random_state=42, n_jobs=_N_JOBS,
         ),
         "XGBoost": xgb.XGBClassifier(
-            n_estimators=150, max_depth=5, learning_rate=0.08,
+            n_estimators=150, max_depth=5, learning_rate=0.05,
             subsample=0.8, colsample_bytree=0.8,
-            use_label_encoder=False, eval_metric="logloss", random_state=42,
+            use_label_encoder=False, eval_metric="logloss",
+            random_state=42, n_jobs=_N_JOBS,
         ),
         "GradientBoosting": GradientBoostingClassifier(
-            n_estimators=100, max_depth=4, learning_rate=0.08,
+            n_estimators=100, max_depth=4, learning_rate=0.05,
             subsample=0.8, random_state=42,
         ),
     }
@@ -79,8 +69,6 @@ def train_models(all_data: dict[str, pd.DataFrame]) -> dict:
     Train ensemble models on combined data from multiple stocks.
     Returns {model_name: {model, scaler, accuracy, auc}}.
     """
-    from sklearn.preprocessing import StandardScaler
-    from sklearn.metrics import accuracy_score, roc_auc_score
     # Combine data from all stocks
     dfs = []
     feature_cols = get_feature_columns()
@@ -98,17 +86,8 @@ def train_models(all_data: dict[str, pd.DataFrame]) -> dict:
         return {}
 
     combined = pd.concat(dfs, ignore_index=True)
-    del dfs
-
-    # Cap samples to limit memory during training
-    _MAX_TRAIN_ROWS = 15_000
-    if len(combined) > _MAX_TRAIN_ROWS:
-        combined = combined.sample(n=_MAX_TRAIN_ROWS, random_state=42)
-        combined = combined.sort_index()  # keep some temporal ordering
-
     X = combined[feature_cols].values
     y = combined["direction"].values
-    del combined
 
     logger.info("Training on %d samples, %d features", len(X), len(feature_cols))
 
@@ -149,15 +128,7 @@ def train_models(all_data: dict[str, pd.DataFrame]) -> dict:
     # Save ensemble metadata
     _save({n: {"accuracy": r["accuracy"], "auc": r["auc"]} for n, r in results.items()}, "ensemble_meta")
 
-    # Free training data and models from memory
-    del X_train, X_test, X_train_s, X_test_s, y_train, y_test, X, y
-    del models, results
-    import gc as _gc; _gc.collect()
-
-    # Invalidate cache so next predict uses new models
-    clear_model_cache()
-
-    return {}
+    return results
 
 
 def predict_stock(df: pd.DataFrame) -> dict:
@@ -165,9 +136,9 @@ def predict_stock(df: pd.DataFrame) -> dict:
     Predict direction for a single stock using the ensemble.
     Returns {signal, confidence, ai_probability, model_votes}.
     """
-    feature_cols = _load_cached("feature_cols")
-    scaler = _load_cached("scaler")
-    meta = _load_cached("ensemble_meta")
+    feature_cols = _load("feature_cols")
+    scaler = _load("scaler")
+    meta = _load("ensemble_meta")
 
     if feature_cols is None or scaler is None or meta is None:
         return {"signal": "HOLD", "confidence": 0, "ai_probability": 0.5}
@@ -192,7 +163,7 @@ def predict_stock(df: pd.DataFrame) -> dict:
     model_votes = {}
 
     for name in meta:
-        model = _load_cached(name)
+        model = _load(name)
         if model is None:
             continue
         prob = model.predict_proba(X)[0, 1]
@@ -209,8 +180,7 @@ def predict_stock(df: pd.DataFrame) -> dict:
     weights = weights / weights.sum()
     ensemble_prob = np.average(probabilities, weights=weights)
 
-    # Generate signal — higher thresholds reduce false signals and ensure
-    # only high-conviction predictions become actionable.
+    # Generate signal — raised thresholds for higher-quality signals
     if ensemble_prob >= 0.65:
         signal = "BUY"
     elif ensemble_prob <= 0.35:

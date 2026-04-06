@@ -5,6 +5,7 @@ Orchestrates the full model lifecycle: data collection → feature engineering
 
 Runs entirely in background threads so the dashboard stays responsive.
 """
+import gc
 import os
 import time
 import logging
@@ -23,6 +24,10 @@ from backend.model_versioning import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Limit stocks used in training to keep memory under Render free-tier cap
+_MAX_TRAIN_SYMBOLS = int(os.getenv("FULL_SCAN_TRAIN_SAMPLE", "20"))
+_TRAIN_FETCH_PERIOD = os.getenv("TRAIN_FETCH_PERIOD", "6mo")
 
 # ─── Pipeline State ──────────────────────────────────────────────────────────
 
@@ -83,13 +88,15 @@ def collect_latest_data(max_symbols: int = 0) -> dict[str, any]:
         stocks = filtered if filtered else all_stocks
 
     symbols = [s["symbol"] if isinstance(s, dict) else s for s in stocks]
-    if max_symbols > 0:
-        symbols = symbols[:max_symbols]
+    # Apply env-based cap for Render free tier
+    limit = max_symbols if max_symbols > 0 else _MAX_TRAIN_SYMBOLS
+    if len(symbols) > limit:
+        symbols = symbols[:limit]
 
     stock_data = {}
     for sym in symbols:
         try:
-            df = fetch_daily_data(sym, period="1y")
+            df = fetch_daily_data(sym, period=_TRAIN_FETCH_PERIOD)
             if not df.empty:
                 df = clean_data(df)
                 database.save_stock_data(df, sym)
@@ -98,6 +105,8 @@ def collect_latest_data(max_symbols: int = 0) -> dict[str, any]:
             logger.debug("Data fetch failed for %s: %s", sym, e)
 
     logger.info("Collected data for %d / %d stocks", len(stock_data), len(symbols))
+    gc.collect()
+    return stock_data
     return stock_data
 
 
@@ -146,6 +155,8 @@ def run_training_pipeline(max_symbols: int = 0) -> dict:
         # 2. Feature engineering
         _set_state(status="training")
         featured_data = compute_all_features(stock_data)
+        del stock_data
+        gc.collect()
         if not featured_data:
             _set_state(status="error", error="Feature computation failed")
             return {"status": "error", "error": "No features computed"}
@@ -155,11 +166,13 @@ def run_training_pipeline(max_symbols: int = 0) -> dict:
         # 3. Train ML models
         logger.info("Training ML ensemble models...")
         ml_results = train_models(featured_data)
+        gc.collect()
 
         # 4. Train RL agent
         logger.info("Training RL agent...")
         try:
             train_rl_agent(featured_data)
+            gc.collect()
         except Exception as e:
             logger.warning("RL training failed (non-fatal): %s", e)
 

@@ -69,12 +69,10 @@ def _scheduler_loop():
 
     logger.info("Scheduler started. Scan interval: %d min", config.SCAN_INTERVAL_MINUTES)
 
-    # Run initial lite scan on startup (30 large-caps only) to keep
-    # memory under Render free-tier 512 MB limit.  A full scan can be
-    # triggered manually from the dashboard or runs after market close.
+    # Run initial lite scan (30 large-caps) to stay within memory limits
     try:
         database.init_db()
-        logger.info("Running initial lite scan (30 large-cap stocks)...")
+        logger.info("Running initial lite scan (top 30 stocks)...")
         run_quick_scan(symbols=config.FALLBACK_SYMBOLS[:30])
     except Exception as e:
         logger.error("Initial scan failed: %s", e)
@@ -85,14 +83,14 @@ def _scheduler_loop():
                 logger.info("Market open — running quick scan...")
                 run_quick_scan()
 
-                # Manage open paper-trading positions (trailing stops, time exits)
+                # Manage open positions (trailing stops, time exits)
                 try:
                     from backend.paper_trading import manage_open_positions
                     exits = manage_open_positions()
                     if exits:
-                        logger.info("Position management: %d auto-exits", len(exits))
+                        logger.info("Position management: %d exits", len(exits))
                 except Exception as e:
-                    logger.warning("Position management failed: %s", e)
+                    logger.error("Position management error: %s", e)
 
             elif _is_after_market_close() and _should_retrain_today():
                 # Daily auto-retraining after market close

@@ -42,7 +42,6 @@ TRAIN_TEST_SPLIT = 0.8
 MIN_TRAINING_SAMPLES = 200
 
 # ─── Opportunity Scoring Weights ──────────────────────────────────────────────
-# Increased AI weight since prediction threshold is now 0.65 (higher quality signals)
 WEIGHT_AI_PREDICTION = 0.45
 WEIGHT_MOMENTUM = 0.25
 WEIGHT_BREAKOUT = 0.15
@@ -62,27 +61,13 @@ RL_DISCOUNT_FACTOR = 0.95
 RL_EPSILON = 0.1
 RL_TRAIN_EPOCHS = 3
 
-# ─── Risk Management ─────────────────────────────────────────────────────
+# ─── Risk Management ─────────────────────────────────────────────────────────
 DEFAULT_CAPITAL = 1_000_000
 RISK_PER_TRADE_PCT = 0.02
 MAX_POSITIONS = 10
 MAX_POSITION_SIZE_PCT = 0.10
 STOP_LOSS_METHOD = "atr"
 RISK_REWARD_RATIO = 2.0
-
-# Trailing stop: trigger at 1.5×ATR profit, trail at 1×ATR distance
-TRAILING_STOP_TRIGGER_ATR = 1.5
-TRAILING_STOP_DISTANCE_ATR = 1.0
-
-# Sector diversification: max positions in same sector
-MAX_SECTOR_POSITIONS = 3
-
-# Daily loss limit: stop trading if portfolio drops > 2% in one day
-MAX_DAILY_LOSS_PCT = 0.02
-
-# Scale position size down in high-volatility, up in low-volatility
-VOLATILITY_SCALING = True
-VOLATILITY_SCALE_BASE = 0.015  # 1.5% daily vol is "normal"
 
 # ─── Ranking ──────────────────────────────────────────────────────────────────
 TOP_BUY_COUNT = 20
@@ -96,20 +81,12 @@ MARKET_OPEN_HOUR = 9
 MARKET_OPEN_MINUTE = 15
 MARKET_CLOSE_HOUR = 15
 MARKET_CLOSE_MINUTE = 30
-FULL_SCAN_CHUNK_SIZE = int(os.getenv("FULL_SCAN_CHUNK_SIZE", "10"))
-FULL_SCAN_FETCH_WORKERS = int(os.getenv("FULL_SCAN_FETCH_WORKERS", "2"))
-FULL_SCAN_ANALYSIS_WORKERS = int(os.getenv("FULL_SCAN_ANALYSIS_WORKERS", "2"))
-FULL_SCAN_TRAIN_SAMPLE = int(os.getenv("FULL_SCAN_TRAIN_SAMPLE", "20"))
 
 # ─── API ──────────────────────────────────────────────────────────────────────
 API_HOST = "0.0.0.0"
 API_PORT = int(os.getenv("PORT", "8000"))
-_cors_raw = os.getenv("CORS_ORIGINS", "http://localhost:3000,https://stockprediction-pi.vercel.app")
+_cors_raw = os.getenv("CORS_ORIGINS", "http://localhost:3000")
 CORS_ORIGINS = [o.strip() for o in _cors_raw.split(",") if o.strip()]
-# Ensure Vercel frontend is always allowed
-if "https://stockprediction-pi.vercel.app" not in CORS_ORIGINS:
-    CORS_ORIGINS.append("https://stockprediction-pi.vercel.app")
-CORS_ALLOW_ORIGIN_REGEX = os.getenv("CORS_ALLOW_ORIGIN_REGEX", r"https://.*\.vercel\.app")
 
 # ─── Intraday Trading ──────────────────────────────────────────────────────────
 INTRADAY_INTERVALS = ["5m", "15m"]         # candle intervals to fetch
@@ -122,13 +99,6 @@ INTRADAY_STOP_ATR_MULT = 1.5               # stop-loss = price ± ATR × this
 INTRADAY_TARGET_ATR_MULT = 2.5             # target   = price ± ATR × this
 INTRADAY_SCAN_BATCH_SIZE = 15              # stocks per batch during intraday scan
 INTRADAY_TRAIN_SAMPLE = 30                 # # stocks sampled for model training
-
-# ─── Beginner Strategy ─────────────────────────────────────────────────────────
-BEGINNER_MIN_CONFIDENCE = 0.70             # Minimum confidence for a beginner trade
-BEGINNER_MAX_TRADES_PER_DAY = 2            # Max trades shown to beginners per day
-BEGINNER_MA_SHORT = 9                      # Short EMA
-BEGINNER_MA_MID = 20                       # Mid EMA
-BEGINNER_MA_LONG = 50                      # Long SMA
 
 # ─── Data ──────────────────────────────────────────────────────────────────────
 DATA_LOOKBACK_DAYS = 365

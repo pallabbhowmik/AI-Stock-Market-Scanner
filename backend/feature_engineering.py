@@ -6,6 +6,7 @@ import logging
 
 import numpy as np
 import pandas as pd
+import ta
 
 from backend import config
 
@@ -14,7 +15,6 @@ logger = logging.getLogger(__name__)
 
 def compute_features(df: pd.DataFrame) -> pd.DataFrame:
     """Compute all technical indicators on a daily OHLCV DataFrame."""
-    import ta
     if df.empty or len(df) < 30:
         return df
 
@@ -95,11 +95,8 @@ def compute_features(df: pd.DataFrame) -> pd.DataFrame:
 
     # ── Targets ──────────────────────────────────────────────────────────
     df["future_return"] = df["close"].shift(-config.PREDICTION_HORIZON) / df["close"] - 1
-    # Require return > 0.5% to label as positive — covers transaction costs
-    # (~0.3% round-trip) plus a profit margin.  This makes the model
-    # only predict *meaningful* moves rather than noise.
-    _MIN_PROFIT_THRESHOLD = 0.005  # 0.5%
-    df["direction"] = (df["future_return"] > _MIN_PROFIT_THRESHOLD).astype(int)
+    # Require 0.5% move to label as "up" — covers transaction costs (~0.3%)
+    df["direction"] = (df["future_return"] > 0.005).astype(int)
 
     return df
 
