@@ -15,23 +15,23 @@ import {
   Search,
 } from "lucide-react";
 
-const CATEGORY_META: Record<string, { icon: React.ElementType; color: string; title: string; desc: string }> = {
-  top_buys: { icon: TrendingUp, color: "text-green-400", title: "Top Buy Picks", desc: "Highest-scoring buy opportunities from AI + technicals" },
-  top_sells: { icon: TrendingDown, color: "text-red-400", title: "Top Sell / Avoid", desc: "Stocks showing bearish signals — consider avoiding" },
-  top_breakouts: { icon: Rocket, color: "text-cyan-400", title: "Breakout Candidates", desc: "Stocks breaking resistance, volume surges, or MA crossovers" },
-  volume_movers: { icon: BarChart3, color: "text-purple-400", title: "Volume Movers", desc: "Unusual volume activity — indicates institutional interest" },
+const CATEGORY_META: Record<string, { icon: React.ElementType; color: string; bg: string; title: string; desc: string }> = {
+  top_buys: { icon: TrendingUp, color: "text-emerald-400", bg: "bg-emerald-500/10", title: "Top Buy Picks", desc: "Highest-scoring buy opportunities from AI + technicals" },
+  top_sells: { icon: TrendingDown, color: "text-red-400", bg: "bg-red-500/10", title: "Top Sell / Avoid", desc: "Stocks showing bearish signals — consider avoiding" },
+  top_breakouts: { icon: Rocket, color: "text-cyan-400", bg: "bg-cyan-500/10", title: "Breakout Candidates", desc: "Stocks breaking resistance, volume surges, or MA crossovers" },
+  volume_movers: { icon: BarChart3, color: "text-purple-400", bg: "bg-purple-500/10", title: "Volume Movers", desc: "Unusual volume activity — indicates institutional interest" },
 };
 
 function SignalBadge({ signal }: { signal: string }) {
   const config = {
-    BUY: { cls: "bg-green-900/60 text-green-400 border-green-700", icon: TrendingUp },
-    SELL: { cls: "bg-red-900/60 text-red-400 border-red-700", icon: TrendingDown },
-    HOLD: { cls: "bg-yellow-900/60 text-yellow-400 border-yellow-700", icon: Minus },
-  }[signal] || { cls: "bg-slate-800 text-slate-400 border-slate-600", icon: Minus };
+    BUY: { cls: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20", icon: TrendingUp },
+    SELL: { cls: "bg-red-500/10 text-red-400 border-red-500/20", icon: TrendingDown },
+    HOLD: { cls: "bg-amber-500/10 text-amber-400 border-amber-500/20", icon: Minus },
+  }[signal] || { cls: "bg-white/[0.04] text-slate-400 border-white/[0.08]", icon: Minus };
   const Icon = config.icon;
   return (
-    <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold ${config.cls}`}>
-      <Icon size={12} /> {signal}
+    <span className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-semibold ${config.cls}`}>
+      <Icon size={11} /> {signal}
     </span>
   );
 }
@@ -50,26 +50,26 @@ function WatchlistCard({ item }: { item: WatchlistItem }) {
   const barColor = pct >= 70 ? "bg-buy" : pct >= 40 ? "bg-hold" : "bg-sell";
 
   return (
-    <div className="card-hover flex flex-col gap-3">
+    <div className="card-hover flex flex-col gap-3.5">
       <div className="flex items-center justify-between">
-        <Link href={`/explorer?stock=${item.symbol}`} className="text-lg font-bold text-white hover:text-accent transition">
+        <Link href={`/explorer?stock=${item.symbol}`} className="text-lg font-bold text-white hover:text-indigo-400 transition">
           {item.symbol}
         </Link>
         <SignalBadge signal={item.signal} />
       </div>
       <div className="flex items-center gap-3">
-        <span className="text-xs text-slate-500 w-14">Score</span>
+        <span className="text-[10px] uppercase tracking-wider text-slate-500 font-medium w-12">Score</span>
         <div className="score-bar flex-1">
           <div className={`score-bar-fill ${barColor}`} style={{ width: `${pct}%` }} />
         </div>
-        <span className="text-sm font-semibold text-slate-300">{pct}%</span>
+        <span className="text-sm font-bold text-slate-200 number-display">{pct}%</span>
       </div>
       <p className="text-xs leading-relaxed text-slate-400 line-clamp-2">{item.explanation}</p>
       <div className="flex items-center justify-between text-xs text-slate-500">
-        <span>Confidence: {Math.round(item.confidence * 100)}%</span>
-        <span>Rank #{item.rank}</span>
+        <span className="number-display">Confidence: {Math.round(item.confidence * 100)}%</span>
+        <span className="text-[10px] font-medium uppercase tracking-wider bg-white/[0.04] rounded-md px-2 py-0.5">#{item.rank}</span>
       </div>
-      <Link href={`/explorer?stock=${item.symbol}`} className="flex items-center gap-1 text-xs text-accent hover:underline self-end">
+      <Link href={`/explorer?stock=${item.symbol}`} className="flex items-center gap-1.5 text-xs font-medium text-indigo-400 hover:text-indigo-300 transition self-end">
         View details <ArrowRight size={12} />
       </Link>
     </div>
@@ -115,8 +115,8 @@ export default function WatchlistPage() {
     return (
       <div className="flex min-h-[60vh] items-center justify-center animate-in">
         <div className="text-center space-y-3">
-          <Loader2 size={32} className="animate-spin text-accent mx-auto" />
-          <p className="text-slate-400">Loading watchlist...</p>
+          <Loader2 size={28} className="animate-spin text-indigo-400 mx-auto" />
+          <p className="text-slate-500 text-sm">Loading watchlist...</p>
         </div>
       </div>
     );
@@ -125,14 +125,14 @@ export default function WatchlistPage() {
   if (error) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center animate-in">
-        <div className="card max-w-md text-center">
-          <div className="mb-3 text-4xl">⚠️</div>
-          <h2 className="text-lg font-semibold text-red-400 mb-2">Couldn&apos;t load watchlist</h2>
+        <div className="card max-w-md text-center gradient-border">
+          <div className="mb-4 text-4xl">⚠️</div>
+          <h2 className="text-lg font-bold text-red-400 mb-2">Couldn&apos;t load watchlist</h2>
           <p className="text-sm text-slate-400 mb-4">{error}</p>
-          <p className="text-xs text-slate-500 mb-4">
+          <p className="text-xs text-slate-500 mb-5">
             The watchlist is generated after a market scan. Head to the Dashboard and run a Full Scan first.
           </p>
-          <Link href="/" className="inline-flex items-center gap-2 rounded-lg bg-accent px-4 py-2 text-sm text-white hover:bg-blue-600 transition">
+          <Link href="/" className="btn-primary">
             Go to Dashboard <ArrowRight size={14} />
           </Link>
         </div>
@@ -158,8 +158,8 @@ export default function WatchlistPage() {
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">Today&apos;s Watchlist</h1>
-          <p className="text-sm text-slate-400">
+          <h1 className="text-2xl font-bold tracking-tight">Today&apos;s Watchlist</h1>
+          <p className="mt-0.5 text-sm text-slate-500">
             {totalStocks} AI-curated picks across {cats.length} categories
             <Tip text="These stocks are automatically selected by the AI after each scan. They represent the best opportunities found in the market today." />
           </p>
@@ -172,13 +172,13 @@ export default function WatchlistPage() {
             placeholder="Search symbol..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="rounded-lg border border-slate-700 bg-slate-800 py-2 pl-9 pr-4 text-sm text-white placeholder:text-slate-500 focus:border-accent focus:outline-none w-48"
+            className="rounded-xl border border-white/[0.08] bg-white/[0.03] py-2 pl-9 pr-4 text-sm text-white placeholder:text-slate-500 focus:border-indigo-500/40 focus:outline-none focus:ring-1 focus:ring-indigo-500/20 w-48 transition"
           />
         </div>
         {searchQuery && (
           <button
             onClick={() => setSearchQuery("")}
-            className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-slate-300 transition hover:bg-slate-700"
+            className="btn-secondary text-xs px-3 py-2"
           >
             Clear search
           </button>
@@ -187,11 +187,11 @@ export default function WatchlistPage() {
 
       {/* Empty state */}
       {totalStocks === 0 && (
-        <div className="card text-center py-12">
-          <div className="mb-3 text-5xl">📋</div>
-          <h2 className="text-lg font-semibold text-white mb-2">No watchlist yet</h2>
-          <p className="text-sm text-slate-400 mb-4">Run a Full Scan from the Dashboard to generate today&apos;s picks.</p>
-          <Link href="/" className="inline-flex items-center gap-2 rounded-lg bg-accent px-5 py-2.5 text-sm font-medium text-white hover:bg-blue-600 transition">
+        <div className="card text-center py-14">
+          <div className="mb-4 text-5xl">📋</div>
+          <h2 className="text-lg font-bold text-white mb-2">No watchlist yet</h2>
+          <p className="text-sm text-slate-400 mb-5">Run a Full Scan from the Dashboard to generate today&apos;s picks.</p>
+          <Link href="/" className="btn-primary">
             Go to Dashboard <ArrowRight size={14} />
           </Link>
         </div>
@@ -209,15 +209,15 @@ export default function WatchlistPage() {
                 <button
                   key={cat}
                   onClick={() => setActiveTab(cat)}
-                  className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm transition ${
+                  className={`relative flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-all duration-200 ${
                     activeTab === cat
-                      ? "bg-accent/15 text-accent border border-accent/30"
-                      : "bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700"
+                      ? "text-white border border-indigo-500/25 bg-indigo-500/10"
+                      : "text-slate-400 border border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.05] hover:text-white"
                   }`}
                 >
-                  <Icon size={14} className={activeTab === cat ? "text-accent" : meta.color} />
+                  <Icon size={14} className={activeTab === cat ? "text-indigo-400" : meta.color} />
                   {meta.title}
-                  <span className="rounded-full bg-slate-600/60 px-2 py-0.5 text-xs">
+                  <span className="rounded-lg bg-white/[0.06] px-2 py-0.5 text-[10px] font-semibold">
                     {count}
                   </span>
                 </button>
@@ -227,14 +227,14 @@ export default function WatchlistPage() {
 
           {/* Category Description */}
           {CATEGORY_META[activeTab] && (
-            <div className="rounded-lg border border-slate-700/50 bg-slate-800/30 px-4 py-2.5 text-sm text-slate-400">
+            <div className="rounded-xl border border-white/[0.05] bg-white/[0.02] px-4 py-3 text-sm text-slate-400">
               {CATEGORY_META[activeTab].desc}
             </div>
           )}
 
           {/* Cards Grid */}
           {currentItems.length === 0 ? (
-            <div className="card text-center text-slate-400 py-8">
+            <div className="card text-center text-slate-500 py-10">
               {searchQuery
                 ? `No stocks matching "${searchQuery}" in this category.`
                 : "No stocks in this category yet. Run a scan first."}

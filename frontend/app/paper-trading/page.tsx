@@ -59,14 +59,14 @@ function Stat({ label, value, sub, color, tip, icon: Icon }: {
   label: string; value: string; sub?: string; color?: string; tip?: string; icon?: React.ElementType;
 }) {
   return (
-    <div className="card-hover flex flex-col gap-1">
-      <span className="text-xs text-slate-400 flex items-center gap-1">
-        {Icon && <Icon size={12} />}
+    <div className="card-hover flex flex-col gap-1.5">
+      <span className="text-[11px] text-slate-500 flex items-center gap-1.5 font-medium uppercase tracking-wider">
+        {Icon && <Icon size={12} className="text-indigo-400" />}
         {label}
         {tip && <Tip text={tip} />}
       </span>
-      <span className={`text-xl font-bold ${color || "text-white"}`}>{value}</span>
-      {sub && <span className={`text-xs ${color || "text-slate-400"}`}>{sub}</span>}
+      <span className={`text-xl font-bold number-display ${color || "text-white"}`}>{value}</span>
+      {sub && <span className={`text-xs font-medium ${color || "text-slate-400"}`}>{sub}</span>}
     </div>
   );
 }
@@ -115,7 +115,7 @@ function OrderForm({ onSuccess }: { onSuccess: () => void }) {
         <div>
           <label className="mb-1 block text-xs text-slate-400">Symbol</label>
           <input
-            className="w-32 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-white outline-none focus:border-accent"
+            className="w-32 rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-white outline-none focus:border-indigo-500/40 focus:ring-1 focus:ring-indigo-500/20 transition"
             placeholder="RELIANCE"
             value={symbol}
             onChange={(e) => setSymbol(e.target.value)}
@@ -126,16 +126,16 @@ function OrderForm({ onSuccess }: { onSuccess: () => void }) {
           <div className="flex gap-1">
             <button
               onClick={() => setSide("BUY")}
-              className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
-                side === "BUY" ? "bg-green-600 text-white" : "bg-slate-700 text-slate-300 hover:bg-slate-600"
+              className={`rounded-xl px-4 py-2 text-sm font-medium transition-all ${
+                side === "BUY" ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/25" : "bg-white/[0.03] text-slate-400 border border-white/[0.06] hover:bg-white/[0.05]"
               }`}
             >
               <TrendingUp size={14} className="inline mr-1" /> BUY
             </button>
             <button
               onClick={() => setSide("SELL")}
-              className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
-                side === "SELL" ? "bg-red-600 text-white" : "bg-slate-700 text-slate-300 hover:bg-slate-600"
+              className={`rounded-xl px-4 py-2 text-sm font-medium transition-all ${
+                side === "SELL" ? "bg-red-500/15 text-red-400 border border-red-500/25" : "bg-white/[0.03] text-slate-400 border border-white/[0.06] hover:bg-white/[0.05]"
               }`}
             >
               <TrendingDown size={14} className="inline mr-1" /> SELL
@@ -147,7 +147,7 @@ function OrderForm({ onSuccess }: { onSuccess: () => void }) {
             Qty <span className="text-slate-600">(0 = auto)</span>
           </label>
           <input
-            className="w-20 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-white outline-none focus:border-accent"
+            className="w-20 rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-white outline-none focus:border-indigo-500/40 focus:ring-1 focus:ring-indigo-500/20 transition"
             type="number"
             min={0}
             value={qty}
@@ -157,7 +157,7 @@ function OrderForm({ onSuccess }: { onSuccess: () => void }) {
         <button
           onClick={submit}
           disabled={busy || !symbol.trim()}
-          className="flex items-center gap-1.5 rounded-lg bg-accent px-5 py-2 text-sm font-medium text-white transition hover:bg-blue-600 disabled:opacity-50"
+          className="btn-primary disabled:opacity-50"
         >
           {busy ? <Loader2 size={14} className="animate-spin" /> : <ArrowRight size={14} />}
           {busy ? "Placing…" : "Place Order"}
@@ -222,8 +222,8 @@ export default function PaperTradingPage() {
     return (
       <div className="flex min-h-[60vh] items-center justify-center animate-in">
         <div className="text-center space-y-3">
-          <Loader2 size={32} className="animate-spin text-accent mx-auto" />
-          <p className="text-slate-400">Loading paper trading dashboard…</p>
+          <Loader2 size={28} className="animate-spin text-indigo-400 mx-auto" />
+          <p className="text-slate-500 text-sm">Loading paper trading dashboard…</p>
         </div>
       </div>
     );
@@ -234,8 +234,8 @@ export default function PaperTradingPage() {
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">Paper Trading</h1>
-          <p className="text-sm text-slate-400">
+          <h1 className="text-2xl font-bold tracking-tight">Paper Trading</h1>
+          <p className="mt-0.5 text-sm text-slate-500">
             Practice trading with ₹1,00,000 virtual cash — no real money at risk
             <Tip text="Paper trading lets you test strategies without risking real money. It simulates buy and sell orders at real market prices." />
           </p>
@@ -243,13 +243,13 @@ export default function PaperTradingPage() {
         <div className="flex flex-wrap gap-2">
           <button
             onClick={handleAutoExecute}
-            className="flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-blue-600 transition"
+            className="btn-primary"
           >
             <Zap size={14} /> Auto-Execute Signals
           </button>
           <button
             onClick={handleReset}
-            className="flex items-center gap-1.5 rounded-lg bg-slate-700 px-4 py-2 text-sm text-slate-300 border border-slate-600 hover:bg-slate-600 transition"
+            className="btn-secondary"
           >
             <RotateCcw size={14} /> Reset
           </button>
@@ -257,10 +257,10 @@ export default function PaperTradingPage() {
       </div>
 
       {autoMsg && (
-        <div className={`rounded-lg border px-4 py-2.5 text-sm ${
-          autoMsg.startsWith("✓") ? "border-green-800 bg-green-900/30 text-green-300"
-          : autoMsg.startsWith("Error") ? "border-red-800 bg-red-900/30 text-red-300"
-          : "border-blue-800 bg-blue-900/30 text-blue-300"
+        <div className={`rounded-xl border px-4 py-2.5 text-sm ${
+          autoMsg.startsWith("✓") ? "border-emerald-500/20 bg-emerald-500/[0.06] text-emerald-300"
+          : autoMsg.startsWith("Error") ? "border-red-500/20 bg-red-500/[0.06] text-red-300"
+          : "border-indigo-500/20 bg-indigo-500/[0.06] text-indigo-300"
         }`}>
           {autoMsg}
         </div>
@@ -268,25 +268,25 @@ export default function PaperTradingPage() {
 
       {/* Getting Started (show when no trades) */}
       {(!trades || trades.length === 0) && !portfolio?.open_positions && (
-        <div className="rounded-xl border border-purple-700/30 bg-gradient-to-r from-purple-900/20 via-blue-900/20 to-slate-900 p-6 animate-in">
-          <h2 className="text-lg font-bold text-white mb-2">Getting Started with Paper Trading</h2>
+        <div className="gradient-border rounded-2xl bg-gradient-to-r from-indigo-900/10 via-purple-900/10 to-surface p-6 animate-in">
+          <h2 className="text-lg font-bold text-white mb-3">Getting Started with Paper Trading</h2>
           <div className="grid gap-4 sm:grid-cols-3 text-sm text-slate-300">
             <div className="flex gap-3">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-900/50 text-blue-400 font-bold text-sm">1</div>
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-indigo-500/10 text-indigo-400 font-bold text-sm">1</div>
               <div>
                 <p className="font-medium text-white">Run a scan</p>
-                <p className="text-xs text-slate-400">Get AI predictions from the <Link href="/" className="text-accent hover:underline">Dashboard</Link></p>
+                <p className="text-xs text-slate-400">Get AI predictions from the <Link href="/" className="text-indigo-400 hover:underline">Dashboard</Link></p>
               </div>
             </div>
             <div className="flex gap-3">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-purple-900/50 text-purple-400 font-bold text-sm">2</div>
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-purple-500/10 text-purple-400 font-bold text-sm">2</div>
               <div>
                 <p className="font-medium text-white">Auto-execute or manual</p>
                 <p className="text-xs text-slate-400">Click &quot;Auto-Execute&quot; or place orders manually below</p>
               </div>
             </div>
             <div className="flex gap-3">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-green-900/50 text-green-400 font-bold text-sm">3</div>
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-400 font-bold text-sm">3</div>
               <div>
                 <p className="font-medium text-white">Track performance</p>
                 <p className="text-xs text-slate-400">Watch your P&L, win rate, and Sharpe ratio</p>
@@ -326,7 +326,7 @@ export default function PaperTradingPage() {
       {portfolio && portfolio.positions.length > 0 && (
         <div className="card animate-in overflow-x-auto">
           <div className="flex items-center gap-2 mb-3">
-            <h3 className="text-sm font-semibold text-slate-300">Open Positions</h3>
+            <h3 className="text-sm font-semibold text-white">Open Positions</h3>
             <Tip text="Stocks you currently hold. Unrealised P&L shows profit/loss if you sold now." />
           </div>
           <table className="w-full text-left text-sm">
@@ -344,9 +344,9 @@ export default function PaperTradingPage() {
             </thead>
             <tbody>
               {portfolio.positions.map((p) => (
-                <tr key={p.symbol} className="border-t border-slate-700/50 hover:bg-slate-700/20 transition">
-                  <td className="py-2 font-medium">
-                    <Link href={`/explorer?stock=${p.symbol}`} className="text-white hover:text-accent transition">
+                <tr key={p.symbol} className="border-t border-white/[0.03] table-row-hover">
+                  <td className="py-2 font-semibold">
+                    <Link href={`/explorer?stock=${p.symbol}`} className="text-white hover:text-indigo-400 transition">
                       {p.symbol}
                     </Link>
                   </td>
@@ -373,8 +373,8 @@ export default function PaperTradingPage() {
         <div className="grid gap-4 lg:grid-cols-2">
           <div className="card animate-in">
             <div className="flex items-center gap-2 mb-3">
-              <Trophy size={16} className="text-yellow-400" />
-              <h3 className="text-sm font-semibold text-slate-300">Performance Stats</h3>
+              <div className="h-7 w-7 rounded-lg bg-yellow-500/10 flex items-center justify-center"><Trophy size={14} className="text-yellow-400" /></div>
+              <h3 className="text-sm font-semibold text-white">Performance Stats</h3>
               <Tip text="Key metrics to evaluate how well your trading strategy is performing." />
             </div>
             <div className="grid grid-cols-2 gap-y-2 text-sm">
@@ -411,17 +411,17 @@ export default function PaperTradingPage() {
 
           {perf.daily_pnl.length > 0 && (
             <div className="card animate-in">
-              <h3 className="mb-3 text-sm font-semibold text-slate-300">Daily P&L</h3>
+              <h3 className="mb-3 text-sm font-semibold text-white">Daily P&L</h3>
               <ResponsiveContainer width="100%" height={220}>
                 <LineChart data={perf.daily_pnl}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
                   <XAxis dataKey="date" tick={{ fontSize: 10, fill: "#94a3b8" }} />
                   <YAxis tick={{ fontSize: 10, fill: "#94a3b8" }} />
                   <Tooltip
-                    contentStyle={{ background: "#1e293b", border: "1px solid #334155", fontSize: 12 }}
+                    contentStyle={{ background: "linear-gradient(135deg, #0f1629, #151d33)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12, fontSize: 12 }}
                     labelStyle={{ color: "#94a3b8" }}
                   />
-                  <Line type="monotone" dataKey="pnl" stroke="#60a5fa" strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="pnl" stroke="#6366f1" strokeWidth={2} dot={false} />
                 </LineChart>
               </ResponsiveContainer>
             </div>
@@ -432,7 +432,7 @@ export default function PaperTradingPage() {
       {/* Trade History */}
       {trades.length > 0 && (
         <div className="card animate-in overflow-x-auto">
-          <h3 className="mb-3 text-sm font-semibold text-slate-300">Trade History</h3>
+          <h3 className="mb-3 text-sm font-semibold text-white">Trade History</h3>
           <table className="w-full text-left text-sm">
             <thead className="text-xs text-slate-400">
               <tr>
@@ -448,7 +448,7 @@ export default function PaperTradingPage() {
             </thead>
             <tbody>
               {trades.map((t) => (
-                <tr key={t.id} className="border-t border-slate-700/50 hover:bg-slate-700/20 transition">
+                <tr key={t.id} className="border-t border-white/[0.03] table-row-hover">
                   <td className="py-1.5 text-xs text-slate-400">
                     {t.timestamp?.slice(0, 16).replace("T", " ")}
                   </td>

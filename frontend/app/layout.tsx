@@ -1,7 +1,13 @@
 import type { Metadata } from "next";
+import { Inter } from "next/font/google";
 import "./globals.css";
-import Link from "next/link";
 import { LayoutShell } from "./LayoutShell";
+
+const inter = Inter({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-inter",
+});
 
 export const metadata: Metadata = {
   title: "AI Stock Scanner – Indian Market",
@@ -10,8 +16,8 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
-      <body className="min-h-screen bg-background text-slate-100 antialiased">
+    <html lang="en" className={inter.variable}>
+      <body className={`min-h-screen bg-background text-slate-100 antialiased ${inter.className}`}>
         <LayoutShell>{children}</LayoutShell>
       </body>
     </html>

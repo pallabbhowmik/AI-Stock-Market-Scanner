@@ -1,17 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  api,
-  Overview,
-  Prediction,
-  MetaStrategyStatus,
-  TrainingStatus,
-  PaperPerformance,
-  PaperPortfolio,
-  PortfolioAllocation,
-  RiskRecommendation,
-} from "@/lib/api";
+import { useEffect, useState } from "react";
+import { api, Overview, Prediction, MetaStrategyStatus, TrainingStatus } from "@/lib/api";
 import {
   TrendingUp,
   TrendingDown,
@@ -29,10 +19,6 @@ import {
   Shield,
   Target,
   Activity,
-  Wallet,
-  Gauge,
-  BriefcaseBusiness,
-  CircleDollarSign,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -61,15 +47,22 @@ function StatCard({
   tip?: string;
 }) {
   return (
-    <div className="card-hover flex flex-col gap-2">
+    <div className="card-hover flex flex-col gap-3">
       <div className="flex items-center justify-between">
-        <span className="text-xs uppercase tracking-wider text-slate-400">
+        <span className="text-[11px] uppercase tracking-wider text-slate-500 font-medium">
           {label}
           {tip && <Tip text={tip} />}
         </span>
-        <Icon size={16} className={color || "text-slate-500"} />
+        <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${
+          color === "text-green-400" ? "bg-emerald-500/10" :
+          color === "text-red-400" ? "bg-red-500/10" :
+          color === "text-blue-400" ? "bg-indigo-500/10" :
+          "bg-white/[0.04]"
+        }`}>
+          <Icon size={15} className={color || "text-slate-400"} />
+        </div>
       </div>
-      <span className={`text-2xl font-bold ${color || "text-white"}`}>{value}</span>
+      <span className={`text-2xl font-bold tracking-tight number-display ${color || "text-white"}`}>{value}</span>
     </div>
   );
 }
@@ -84,43 +77,22 @@ function ScoreBar({ score, label }: { score: number; label: string }) {
       <div className="score-bar flex-1">
         <div className={`score-bar-fill ${barColor}`} style={{ width: `${pct}%` }} />
       </div>
-      <span className="w-10 text-right text-xs font-medium text-slate-300">{pct}%</span>
+      <span className="w-10 text-right text-xs font-semibold text-slate-300 number-display">{pct}%</span>
     </div>
-  );
-}
-
-function pct(value: number, digits = 0) {
-  return `${(value * 100).toFixed(digits)}%`;
-}
-
-function convictionLabel(prediction: Prediction) {
-  const blended = prediction.opportunity_score * 0.55 + prediction.confidence * 0.45;
-  if (blended >= 0.78) return { label: "A+", tone: "text-green-400" };
-  if (blended >= 0.68) return { label: "A", tone: "text-emerald-400" };
-  if (blended >= 0.58) return { label: "B", tone: "text-yellow-400" };
-  return { label: "C", tone: "text-slate-400" };
-}
-
-function setupQuality(prediction: Prediction) {
-  return (
-    prediction.opportunity_score * 0.5 +
-    prediction.momentum_score * 0.2 +
-    prediction.breakout_score * 0.15 +
-    prediction.volume_spike_score * 0.15
   );
 }
 
 // ─── Signal Badge ───────────────────────────────────────────────────────────
 function SignalBadge({ signal }: { signal: string }) {
   const config = {
-    BUY: { cls: "bg-green-900/60 text-green-400 border-green-700", icon: TrendingUp },
-    SELL: { cls: "bg-red-900/60 text-red-400 border-red-700", icon: TrendingDown },
-    HOLD: { cls: "bg-yellow-900/60 text-yellow-400 border-yellow-700", icon: Minus },
-  }[signal] || { cls: "bg-slate-800 text-slate-400 border-slate-600", icon: Minus };
+    BUY: { cls: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20", icon: TrendingUp },
+    SELL: { cls: "bg-red-500/10 text-red-400 border-red-500/20", icon: TrendingDown },
+    HOLD: { cls: "bg-amber-500/10 text-amber-400 border-amber-500/20", icon: Minus },
+  }[signal] || { cls: "bg-white/[0.04] text-slate-400 border-white/[0.08]", icon: Minus };
   const Icon = config.icon;
   return (
-    <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold ${config.cls}`}>
-      <Icon size={12} /> {signal}
+    <span className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-semibold ${config.cls}`}>
+      <Icon size={11} /> {signal}
     </span>
   );
 }
@@ -128,14 +100,14 @@ function SignalBadge({ signal }: { signal: string }) {
 // ─── Regime Badge ───────────────────────────────────────────────────────────
 function RegimeBadge({ regime }: { regime: string }) {
   const config = {
-    BULL: { cls: "bg-green-900/60 text-green-400 border-green-700", icon: "📈", desc: "Uptrend" },
-    BEAR: { cls: "bg-red-900/60 text-red-400 border-red-700", icon: "📉", desc: "Downtrend" },
-    SIDEWAYS: { cls: "bg-yellow-900/60 text-yellow-400 border-yellow-700", icon: "➡️", desc: "Range-bound" },
-  }[regime] || { cls: "bg-slate-800 text-slate-400 border-slate-600", icon: "❓", desc: "" };
+    BULL: { cls: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20", icon: "📈", desc: "Uptrend" },
+    BEAR: { cls: "bg-red-500/10 text-red-400 border-red-500/20", icon: "📉", desc: "Downtrend" },
+    SIDEWAYS: { cls: "bg-amber-500/10 text-amber-400 border-amber-500/20", icon: "➡️", desc: "Range-bound" },
+  }[regime] || { cls: "bg-white/[0.04] text-slate-400 border-white/[0.08]", icon: "❓", desc: "" };
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm font-semibold ${config.cls}`}>
+    <span className={`inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-sm font-semibold ${config.cls}`}>
       {config.icon} {regime}
-      {config.desc && <span className="text-xs font-normal opacity-70">({config.desc})</span>}
+      {config.desc && <span className="text-xs font-normal opacity-60">({config.desc})</span>}
     </span>
   );
 }
@@ -150,35 +122,43 @@ function SignalRing({ buy, sell, hold }: { buy: number; sell: number; hold: numb
   const holdPct = (hold / total) * 100;
 
   return (
-    <div className="flex items-center gap-4">
-      <div className="relative h-20 w-20">
-        <svg viewBox="0 0 36 36" className="h-20 w-20 -rotate-90">
-          <circle cx="18" cy="18" r="14" fill="none" stroke="#16a34a" strokeWidth="4"
-            strokeDasharray={`${buyPct * 0.88} ${88 - buyPct * 0.88}`} strokeDashoffset="0" />
-          <circle cx="18" cy="18" r="14" fill="none" stroke="#dc2626" strokeWidth="4"
-            strokeDasharray={`${sellPct * 0.88} ${88 - sellPct * 0.88}`} strokeDashoffset={`${-buyPct * 0.88}`} />
-          <circle cx="18" cy="18" r="14" fill="none" stroke="#eab308" strokeWidth="4"
-            strokeDasharray={`${holdPct * 0.88} ${88 - holdPct * 0.88}`} strokeDashoffset={`${-(buyPct + sellPct) * 0.88}`} />
+    <div className="flex items-center gap-6">
+      <div className="relative h-24 w-24">
+        <svg viewBox="0 0 36 36" className="h-24 w-24 -rotate-90 drop-shadow-lg">
+          <circle cx="18" cy="18" r="14" fill="none" stroke="rgba(255,255,255,0.03)" strokeWidth="3.5" />
+          <circle cx="18" cy="18" r="14" fill="none" stroke="#22c55e" strokeWidth="3.5"
+            strokeDasharray={`${buyPct * 0.88} ${88 - buyPct * 0.88}`} strokeDashoffset="0"
+            strokeLinecap="round" className="drop-shadow-[0_0_6px_rgba(34,197,94,0.3)]" />
+          <circle cx="18" cy="18" r="14" fill="none" stroke="#ef4444" strokeWidth="3.5"
+            strokeDasharray={`${sellPct * 0.88} ${88 - sellPct * 0.88}`} strokeDashoffset={`${-buyPct * 0.88}`}
+            strokeLinecap="round" />
+          <circle cx="18" cy="18" r="14" fill="none" stroke="#f59e0b" strokeWidth="3.5"
+            strokeDasharray={`${holdPct * 0.88} ${88 - holdPct * 0.88}`} strokeDashoffset={`${-(buyPct + sellPct) * 0.88}`}
+            strokeLinecap="round" />
         </svg>
-        <div className="absolute inset-0 flex items-center justify-center">
-          <span className="text-lg font-bold text-white">{total}</span>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <span className="text-xl font-bold text-white">{total}</span>
+          <span className="text-[9px] text-slate-500 uppercase tracking-wider">stocks</span>
         </div>
       </div>
-      <div className="space-y-1.5">
-        <div className="flex items-center gap-2 text-sm">
-          <span className="h-2.5 w-2.5 rounded-full bg-buy" />
-          <span className="text-slate-400">Buy</span>
-          <span className="font-semibold text-green-400">{buy} ({Math.round(buyPct)}%)</span>
+      <div className="space-y-2.5">
+        <div className="flex items-center gap-3 text-sm">
+          <span className="h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_6px_rgba(34,197,94,0.4)]" />
+          <span className="text-slate-400 w-8">Buy</span>
+          <span className="font-bold text-emerald-400 number-display">{buy}</span>
+          <span className="text-xs text-slate-600">({Math.round(buyPct)}%)</span>
         </div>
-        <div className="flex items-center gap-2 text-sm">
-          <span className="h-2.5 w-2.5 rounded-full bg-sell" />
-          <span className="text-slate-400">Sell</span>
-          <span className="font-semibold text-red-400">{sell} ({Math.round(sellPct)}%)</span>
+        <div className="flex items-center gap-3 text-sm">
+          <span className="h-2 w-2 rounded-full bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.4)]" />
+          <span className="text-slate-400 w-8">Sell</span>
+          <span className="font-bold text-red-400 number-display">{sell}</span>
+          <span className="text-xs text-slate-600">({Math.round(sellPct)}%)</span>
         </div>
-        <div className="flex items-center gap-2 text-sm">
-          <span className="h-2.5 w-2.5 rounded-full bg-hold" />
-          <span className="text-slate-400">Hold</span>
-          <span className="font-semibold text-yellow-400">{hold} ({Math.round(holdPct)}%)</span>
+        <div className="flex items-center gap-3 text-sm">
+          <span className="h-2 w-2 rounded-full bg-amber-500 shadow-[0_0_6px_rgba(245,158,11,0.4)]" />
+          <span className="text-slate-400 w-8">Hold</span>
+          <span className="font-bold text-amber-400 number-display">{hold}</span>
+          <span className="text-xs text-slate-600">({Math.round(holdPct)}%)</span>
         </div>
       </div>
     </div>
@@ -187,10 +167,10 @@ function SignalRing({ buy, sell, hold }: { buy: number; sell: number; hold: numb
 
 // ─── Strategy Weight Bar ────────────────────────────────────────────────────
 const STRATEGY_COLORS: Record<string, string> = {
-  ml_prediction: "bg-blue-500",
+  ml_prediction: "bg-indigo-500",
   rl_agent: "bg-purple-500",
-  momentum_breakout: "bg-green-500",
-  mean_reversion: "bg-yellow-500",
+  momentum_breakout: "bg-emerald-500",
+  mean_reversion: "bg-amber-500",
   volume_breakout: "bg-cyan-500",
   sentiment: "bg-pink-500",
 };
@@ -217,21 +197,25 @@ function StrategyMixPanel({ meta }: { meta: MetaStrategyStatus }) {
 
   return (
     <div className="card animate-in">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <Brain size={20} className="text-purple-400" />
-          <h2 className="text-lg font-semibold">Meta-AI Strategy Mix</h2>
-          <Tip text="The Meta-AI automatically adjusts how much weight each strategy gets based on current market conditions." />
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-purple-500/10">
+            <Brain size={18} className="text-purple-400" />
+          </div>
+          <div>
+            <h2 className="text-base font-bold text-white">Meta-AI Strategy Mix</h2>
+            <p className="text-xs text-slate-500">Auto-adjusting weights based on market conditions</p>
+          </div>
         </div>
         <RegimeBadge regime={meta.regime || "SIDEWAYS"} />
       </div>
 
       {/* Stacked bar */}
-      <div className="mb-4 flex h-8 w-full overflow-hidden rounded-full">
+      <div className="mb-5 flex h-6 w-full overflow-hidden rounded-full bg-white/[0.03]">
         {sorted.map(([name, w]) => (
           <div
             key={name}
-            className={`${STRATEGY_COLORS[name] || "bg-slate-500"} transition-all duration-500 flex items-center justify-center`}
+            className={`${STRATEGY_COLORS[name] || "bg-slate-500"} transition-all duration-700 flex items-center justify-center first:rounded-l-full last:rounded-r-full`}
             style={{ width: `${Math.round(w * 100)}%` }}
             title={`${STRATEGY_LABELS[name] || name}: ${Math.round(w * 100)}%`}
           >
@@ -241,13 +225,13 @@ function StrategyMixPanel({ meta }: { meta: MetaStrategyStatus }) {
       </div>
 
       {/* Legend */}
-      <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+      <div className="mb-5 grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6">
         {sorted.map(([name, w]) => (
           <div key={name} className="tooltip-trigger flex items-center gap-2">
-            <span className={`inline-block h-3 w-3 rounded-full ${STRATEGY_COLORS[name] || "bg-slate-500"}`} />
+            <span className={`inline-block h-2.5 w-2.5 rounded-full ${STRATEGY_COLORS[name] || "bg-slate-500"}`} />
             <span className="text-xs text-slate-400">
               {STRATEGY_LABELS[name] || name}{" "}
-              <span className="font-semibold text-slate-200">{Math.round(w * 100)}%</span>
+              <span className="font-bold text-slate-200">{Math.round(w * 100)}%</span>
             </span>
             <span className="tooltip-content">{STRATEGY_TIPS[name] || ""}</span>
           </div>
@@ -256,43 +240,43 @@ function StrategyMixPanel({ meta }: { meta: MetaStrategyStatus }) {
 
       {/* Explanation */}
       {meta.explanation && (
-        <div className="rounded-lg border border-slate-700 bg-slate-800/50 px-4 py-3 text-sm text-slate-300">
-          <Sparkles size={14} className="mr-1.5 inline text-yellow-400" />
+        <div className="rounded-xl bg-white/[0.02] border border-white/[0.05] px-4 py-3 text-sm text-slate-300">
+          <Sparkles size={13} className="mr-1.5 inline text-amber-400" />
           {meta.explanation}
         </div>
       )}
 
       {/* Performance table */}
       {meta.performance && Object.keys(meta.performance).length > 0 && (
-        <div className="mt-4 overflow-x-auto">
+        <div className="mt-5 overflow-x-auto">
           <table className="w-full text-xs">
             <thead>
-              <tr className="border-b border-slate-700 text-left uppercase text-slate-500">
-                <th className="pb-2 pr-3">Strategy</th>
-                <th className="pb-2 pr-3">Trades</th>
-                <th className="pb-2 pr-3">Win Rate</th>
-                <th className="pb-2 pr-3">Avg Return</th>
-                <th className="pb-2">Sharpe</th>
+              <tr className="border-b border-white/[0.05] text-left uppercase text-slate-500">
+                <th className="pb-3 pr-3 font-medium">Strategy</th>
+                <th className="pb-3 pr-3 font-medium">Trades</th>
+                <th className="pb-3 pr-3 font-medium">Win Rate</th>
+                <th className="pb-3 pr-3 font-medium">Avg Return</th>
+                <th className="pb-3 font-medium">Sharpe</th>
               </tr>
             </thead>
             <tbody>
               {Object.entries(meta.performance).map(([name, perf]) => (
-                <tr key={name} className="border-b border-slate-800">
-                  <td className="py-2 pr-3 font-medium text-slate-300">
+                <tr key={name} className="border-b border-white/[0.03] table-row-hover">
+                  <td className="py-2.5 pr-3 font-medium text-slate-300">
                     {STRATEGY_LABELS[name] || name}
                   </td>
-                  <td className="py-2 pr-3 text-slate-400">{perf.trades}</td>
-                  <td className="py-2 pr-3">
-                    <span className={perf.win_rate >= 0.5 ? "text-green-400" : "text-red-400"}>
+                  <td className="py-2.5 pr-3 text-slate-400 number-display">{perf.trades}</td>
+                  <td className="py-2.5 pr-3">
+                    <span className={`number-display ${perf.win_rate >= 0.5 ? "text-emerald-400" : "text-red-400"}`}>
                       {Math.round(perf.win_rate * 100)}%
                     </span>
                   </td>
-                  <td className="py-2 pr-3">
-                    <span className={perf.avg_return >= 0 ? "text-green-400" : "text-red-400"}>
+                  <td className="py-2.5 pr-3">
+                    <span className={`number-display ${perf.avg_return >= 0 ? "text-emerald-400" : "text-red-400"}`}>
                       {(perf.avg_return * 100).toFixed(2)}%
                     </span>
                   </td>
-                  <td className="py-2 text-slate-300">{perf.sharpe_ratio.toFixed(2)}</td>
+                  <td className="py-2.5 text-slate-300 number-display">{perf.sharpe_ratio.toFixed(2)}</td>
                 </tr>
               ))}
             </tbody>
@@ -317,16 +301,20 @@ function TrainingStatusPanel({
 
   return (
     <div className="card animate-in">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <Activity size={20} className="text-cyan-400" />
-          <h2 className="text-lg font-semibold">AI Model Status</h2>
-          <Tip text="The AI model retrains using latest market data. Higher accuracy = better predictions, but past performance doesn&apos;t guarantee future results." />
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-cyan-500/10">
+            <Activity size={18} className="text-cyan-400" />
+          </div>
+          <div>
+            <h2 className="text-base font-bold text-white">AI Model Status</h2>
+            <p className="text-xs text-slate-500">Training history and accuracy metrics</p>
+          </div>
         </div>
         <button
           onClick={onRetrain}
           disabled={retraining || training.training_in_progress}
-          className="flex items-center gap-1.5 rounded-lg bg-purple-700 px-4 py-1.5 text-xs font-medium text-white transition hover:bg-purple-600 disabled:opacity-50"
+          className="btn-secondary text-xs px-4 py-2 disabled:opacity-50"
         >
           {training.training_in_progress ? (
             <><Loader2 size={12} className="animate-spin" /> Training...</>
@@ -336,72 +324,72 @@ function TrainingStatusPanel({
         </button>
       </div>
 
-      <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <div className="rounded-lg border border-slate-700 bg-slate-800/50 px-3 py-2">
-          <span className="block text-xs text-slate-500">Version</span>
-          <span className="text-lg font-bold text-white">{training.model_version || "–"}</span>
+      <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4 stagger-in">
+        <div className="rounded-xl bg-white/[0.02] border border-white/[0.05] px-3.5 py-3">
+          <span className="block text-[10px] uppercase tracking-wider text-slate-500 font-medium">Version</span>
+          <span className="text-lg font-bold text-white mt-1">{training.model_version || "–"}</span>
         </div>
-        <div className="rounded-lg border border-slate-700 bg-slate-800/50 px-3 py-2">
-          <span className="block text-xs text-slate-500">Accuracy <Tip text="How often the model correctly predicts if a stock will go up or down" /></span>
-          <span className={`text-lg font-bold ${accuracyPct >= 55 ? "text-green-400" : "text-yellow-400"}`}>
+        <div className="rounded-xl bg-white/[0.02] border border-white/[0.05] px-3.5 py-3">
+          <span className="block text-[10px] uppercase tracking-wider text-slate-500 font-medium">Accuracy</span>
+          <span className={`text-lg font-bold mt-1 number-display ${accuracyPct >= 55 ? "text-emerald-400" : "text-amber-400"}`}>
             {accuracyPct}%
           </span>
         </div>
-        <div className="rounded-lg border border-slate-700 bg-slate-800/50 px-3 py-2">
-          <span className="block text-xs text-slate-500">Status</span>
-          <span className={`text-sm font-semibold capitalize ${
-            training.status === "completed" ? "text-green-400" :
+        <div className="rounded-xl bg-white/[0.02] border border-white/[0.05] px-3.5 py-3">
+          <span className="block text-[10px] uppercase tracking-wider text-slate-500 font-medium">Status</span>
+          <span className={`text-sm font-semibold capitalize mt-1 ${
+            training.status === "completed" ? "text-emerald-400" :
             training.status === "error" ? "text-red-400" :
-            training.status === "training" ? "text-yellow-400" : "text-slate-400"
+            training.status === "training" ? "text-amber-400" : "text-slate-400"
           }`}>
             {training.status}
           </span>
         </div>
-        <div className="rounded-lg border border-slate-700 bg-slate-800/50 px-3 py-2">
-          <span className="block text-xs text-slate-500">Data Points</span>
-          <span className="text-sm text-slate-300">
+        <div className="rounded-xl bg-white/[0.02] border border-white/[0.05] px-3.5 py-3">
+          <span className="block text-[10px] uppercase tracking-wider text-slate-500 font-medium">Data Points</span>
+          <span className="text-sm font-semibold text-slate-300 mt-1 number-display">
             {training.model_dataset_size > 0 ? training.model_dataset_size.toLocaleString() : "–"}
           </span>
         </div>
       </div>
 
-      {/* Version history (last 5) */}
+      {/* Version history */}
       {training.all_versions && training.all_versions.length > 0 && (
-        <div className="mt-4 overflow-x-auto">
+        <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead>
-              <tr className="border-b border-slate-700 text-left uppercase text-slate-500">
-                <th className="pb-2 pr-3">Version</th>
-                <th className="pb-2 pr-3">Date</th>
-                <th className="pb-2 pr-3">Accuracy</th>
-                <th className="pb-2 pr-3">AUC</th>
-                <th className="pb-2 pr-3">Sharpe</th>
-                <th className="pb-2">Status</th>
+              <tr className="border-b border-white/[0.05] text-left uppercase text-slate-500">
+                <th className="pb-3 pr-3 font-medium">Version</th>
+                <th className="pb-3 pr-3 font-medium">Date</th>
+                <th className="pb-3 pr-3 font-medium">Accuracy</th>
+                <th className="pb-3 pr-3 font-medium">AUC</th>
+                <th className="pb-3 pr-3 font-medium">Sharpe</th>
+                <th className="pb-3 font-medium">Status</th>
               </tr>
             </thead>
             <tbody>
               {training.all_versions.slice(-5).reverse().map((v) => (
-                <tr key={v.version_id} className="border-b border-slate-800">
-                  <td className="py-2 pr-3 font-medium text-slate-300">{v.version_id}</td>
-                  <td className="py-2 pr-3 text-slate-400">
+                <tr key={v.version_id} className="border-b border-white/[0.03] table-row-hover">
+                  <td className="py-2.5 pr-3 font-medium text-slate-300">{v.version_id}</td>
+                  <td className="py-2.5 pr-3 text-slate-400">
                     {new Date(v.training_date).toLocaleDateString("en-IN", {
                       day: "numeric", month: "short",
                     })}
                   </td>
-                  <td className="py-2 pr-3">
-                    <span className={v.accuracy >= 0.55 ? "text-green-400" : "text-yellow-400"}>
+                  <td className="py-2.5 pr-3">
+                    <span className={`number-display ${v.accuracy >= 0.55 ? "text-emerald-400" : "text-amber-400"}`}>
                       {Math.round(v.accuracy * 100)}%
                     </span>
                   </td>
-                  <td className="py-2 pr-3 text-slate-300">{v.auc.toFixed(3)}</td>
-                  <td className="py-2 pr-3 text-slate-300">{v.sharpe_ratio.toFixed(2)}</td>
-                  <td className="py-2">
+                  <td className="py-2.5 pr-3 text-slate-300 number-display">{v.auc.toFixed(3)}</td>
+                  <td className="py-2.5 pr-3 text-slate-300 number-display">{v.sharpe_ratio.toFixed(2)}</td>
+                  <td className="py-2.5">
                     {v.deployed ? (
-                      <span className="rounded-full bg-green-900/60 px-2 py-0.5 text-green-400 border border-green-700 text-[10px]">
+                      <span className="rounded-lg bg-emerald-500/10 px-2.5 py-0.5 text-emerald-400 border border-emerald-500/20 text-[10px] font-semibold">
                         LIVE
                       </span>
                     ) : (
-                      <span className="text-slate-500">archived</span>
+                      <span className="text-slate-500 text-[10px]">archived</span>
                     )}
                   </td>
                 </tr>
@@ -414,305 +402,55 @@ function TrainingStatusPanel({
   );
 }
 
-function ActionPlanPanel({
-  overview,
-  meta,
-  buys,
-}: {
-  overview: Overview;
-  meta: MetaStrategyStatus | null;
-  buys: Prediction[];
-}) {
-  const regime = meta?.regime || "SIDEWAYS";
-  const regimeConfidence = meta?.regime_confidence ?? 0;
-  const strongBuys = buys.filter((p) => p.confidence >= 0.65 && p.opportunity_score >= 0.65);
-  const avgOpportunity = buys.length
-    ? buys.reduce((sum, p) => sum + p.opportunity_score, 0) / buys.length
-    : 0;
-  const breadth = overview.analyzed_today > 0 ? overview.buy_signals / overview.analyzed_today : 0;
-
-  const posture =
-    regime === "BULL" && breadth >= 0.18
-      ? "Lean offensive"
-      : regime === "BEAR"
-      ? "Protect capital"
-      : "Stay selective";
-
-  const notes = [
-    regime === "BULL"
-      ? "Trend regime supports breakout-following longs, but only take the cleanest setups."
-      : regime === "BEAR"
-      ? "Bear regime means lower position size, faster exits, and stricter entry filters."
-      : "Sideways regime favors patience. Skip mediocre signals and only trade top-conviction names.",
-    strongBuys.length >= 3
-      ? `${strongBuys.length} high-conviction buy setups are available now.`
-      : "There are not many high-conviction setups right now, so forcing trades is likely a mistake.",
-    avgOpportunity >= 0.65
-      ? "Average opportunity quality is healthy enough to consider deploying capital gradually."
-      : "Average setup quality is modest. Keep risk small and wait for cleaner alignment.",
-  ];
-
-  return (
-    <div className="card animate-in">
-      <div className="mb-4 flex items-center gap-2">
-        <Gauge size={20} className="text-amber-400" />
-        <h2 className="text-lg font-semibold">Trading Playbook</h2>
-      </div>
-      <div className="grid gap-3 md:grid-cols-3">
-        <div className="rounded-xl border border-slate-700 bg-slate-800/50 p-4">
-          <div className="text-xs uppercase tracking-wide text-slate-500">Posture</div>
-          <div className="mt-2 text-xl font-bold text-white">{posture}</div>
-          <div className="mt-1 text-sm text-slate-400">
-            {regime} regime with {pct(regimeConfidence, 0)} confidence
-          </div>
-        </div>
-        <div className="rounded-xl border border-slate-700 bg-slate-800/50 p-4">
-          <div className="text-xs uppercase tracking-wide text-slate-500">Signal Breadth</div>
-          <div className="mt-2 text-xl font-bold text-white">{pct(breadth, 0)}</div>
-          <div className="mt-1 text-sm text-slate-400">
-            {overview.buy_signals} buy signals out of {overview.analyzed_today} analyzed
-          </div>
-        </div>
-        <div className="rounded-xl border border-slate-700 bg-slate-800/50 p-4">
-          <div className="text-xs uppercase tracking-wide text-slate-500">Deployable Setups</div>
-          <div className="mt-2 text-xl font-bold text-white">{strongBuys.length}</div>
-          <div className="mt-1 text-sm text-slate-400">
-            Confidence and opportunity both above 65%
-          </div>
-        </div>
-      </div>
-      <div className="mt-4 space-y-2">
-        {notes.map((note) => (
-          <div key={note} className="rounded-lg border border-slate-800 bg-slate-900/60 px-4 py-3 text-sm text-slate-300">
-            {note}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function CapitalPlanPanel({
-  allocation,
-  paperPortfolio,
-  paperPerformance,
-}: {
-  allocation: PortfolioAllocation | null;
-  paperPortfolio: PaperPortfolio | null;
-  paperPerformance: PaperPerformance | null;
-}) {
-  const topAllocation = allocation?.allocation?.slice(0, 5) || [];
-
-  return (
-    <div className="grid gap-4 xl:grid-cols-2">
-      <div className="card animate-in">
-        <div className="mb-4 flex items-center gap-2">
-          <BriefcaseBusiness size={20} className="text-cyan-400" />
-          <h2 className="text-lg font-semibold">Suggested Allocation</h2>
-          <Tip text="Weights are derived from the current BUY list to help you concentrate capital in the strongest names instead of spreading too thin." />
-        </div>
-        {topAllocation.length ? (
-          <div className="space-y-3">
-            {topAllocation.map((item) => (
-              <div key={item.symbol} className="rounded-lg border border-slate-700 bg-slate-800/50 p-3">
-                <div className="mb-2 flex items-center justify-between">
-                  <Link href={`/explorer?stock=${item.symbol}`} className="font-semibold text-white hover:text-accent">
-                    {item.symbol}
-                  </Link>
-                  <span className="text-sm font-medium text-cyan-300">{pct(item.weight, 1)}</span>
-                </div>
-                <ScoreBar score={item.weight} label="" />
-              </div>
-            ))}
-            <p className="text-xs text-slate-400">
-              Method: <span className="font-medium text-slate-300">{allocation?.method || "score_weighted"}</span>
-            </p>
-          </div>
-        ) : (
-          <p className="text-sm text-slate-500">No current BUY basket available for allocation yet.</p>
-        )}
-      </div>
-
-      <div className="card animate-in">
-        <div className="mb-4 flex items-center gap-2">
-          <Wallet size={20} className="text-green-400" />
-          <h2 className="text-lg font-semibold">Paper Portfolio Snapshot</h2>
-          <Tip text="Use this to pressure-test your discipline. The dashboard is more useful when your live decisions are compared against paper-trade outcomes." />
-        </div>
-        {paperPortfolio ? (
-          <>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="rounded-lg border border-slate-700 bg-slate-800/50 px-3 py-2">
-                <div className="text-xs text-slate-500">Portfolio Value</div>
-                <div className="text-lg font-bold text-white">
-                  Rs {Math.round(paperPortfolio.portfolio_value).toLocaleString("en-IN")}
-                </div>
-              </div>
-              <div className="rounded-lg border border-slate-700 bg-slate-800/50 px-3 py-2">
-                <div className="text-xs text-slate-500">Open Positions</div>
-                <div className="text-lg font-bold text-white">{paperPortfolio.open_positions}</div>
-              </div>
-              <div className="rounded-lg border border-slate-700 bg-slate-800/50 px-3 py-2">
-                <div className="text-xs text-slate-500">Total Return</div>
-                <div className={`text-lg font-bold ${paperPortfolio.total_return >= 0 ? "text-green-400" : "text-red-400"}`}>
-                  {paperPortfolio.total_return_pct.toFixed(2)}%
-                </div>
-              </div>
-              <div className="rounded-lg border border-slate-700 bg-slate-800/50 px-3 py-2">
-                <div className="text-xs text-slate-500">Profit Factor</div>
-                <div className="text-lg font-bold text-white">
-                  {paperPerformance ? paperPerformance.profit_factor.toFixed(2) : "-"}
-                </div>
-              </div>
-            </div>
-            <div className="mt-3 text-sm text-slate-400">
-              Win rate: <span className="font-medium text-slate-200">{paperPerformance ? pct(paperPerformance.win_rate, 0) : "-"}</span>
-              {" · "}
-              Max drawdown: <span className="font-medium text-slate-200">{paperPerformance ? `${paperPerformance.max_drawdown.toFixed(2)}%` : "-"}</span>
-            </div>
-          </>
-        ) : (
-          <p className="text-sm text-slate-500">Paper trading data is not available yet.</p>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function ExecutionPanel({
-  predictions,
-  risks,
-}: {
-  predictions: Prediction[];
-  risks: Record<string, RiskRecommendation>;
-}) {
-  const setups = predictions
-    .map((prediction) => ({ prediction, risk: risks[prediction.symbol] }))
-    .slice(0, 5);
-
-  return (
-    <div className="card animate-in">
-      <div className="mb-4 flex items-center gap-2">
-        <CircleDollarSign size={20} className="text-emerald-400" />
-        <h2 className="text-lg font-semibold">Best Setup Planner</h2>
-        <Tip text="This shortlist combines conviction, signal quality, and available risk guidance so you can act on a few strong names instead of many average ones." />
-      </div>
-      {!setups.length ? (
-        <p className="text-sm text-slate-500">No strong setups available yet.</p>
-      ) : (
-        <div className="space-y-3">
-          {setups.map(({ prediction, risk }) => {
-            const conviction = convictionLabel(prediction);
-            return (
-              <div key={prediction.symbol} className="rounded-xl border border-slate-700 bg-slate-800/50 p-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <Link href={`/explorer?stock=${prediction.symbol}`} className="text-lg font-semibold text-white hover:text-accent">
-                        {prediction.symbol}
-                      </Link>
-                      <SignalBadge signal={prediction.signal} />
-                      <span className={`text-sm font-semibold ${conviction.tone}`}>{conviction.label}</span>
-                    </div>
-                    <p className="mt-2 max-w-3xl text-sm text-slate-400">{prediction.explanation}</p>
-                  </div>
-                  <div className="grid min-w-[220px] grid-cols-2 gap-2 text-sm">
-                    <div className="rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2">
-                      <div className="text-xs text-slate-500">Confidence</div>
-                      <div className="font-semibold text-white">{pct(prediction.confidence, 0)}</div>
-                    </div>
-                    <div className="rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2">
-                      <div className="text-xs text-slate-500">Setup Quality</div>
-                      <div className="font-semibold text-white">{pct(setupQuality(prediction), 0)}</div>
-                    </div>
-                    <div className="rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2">
-                      <div className="text-xs text-slate-500">Momentum</div>
-                      <div className="font-semibold text-white">{pct(prediction.momentum_score, 0)}</div>
-                    </div>
-                    <div className="rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2">
-                      <div className="text-xs text-slate-500">Breakout</div>
-                      <div className="font-semibold text-white">{pct(prediction.breakout_score, 0)}</div>
-                    </div>
-                  </div>
-                </div>
-                {risk && (
-                  <div className="mt-3 grid gap-2 md:grid-cols-4">
-                    <div className="rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2">
-                      <div className="text-xs text-slate-500">Entry</div>
-                      <div className="font-semibold text-white">{risk.entry_price.toFixed(2)}</div>
-                    </div>
-                    <div className="rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2">
-                      <div className="text-xs text-slate-500">Stop Loss</div>
-                      <div className="font-semibold text-red-400">{risk.stop_loss.toFixed(2)}</div>
-                    </div>
-                    <div className="rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2">
-                      <div className="text-xs text-slate-500">Take Profit</div>
-                      <div className="font-semibold text-green-400">{risk.take_profit.toFixed(2)}</div>
-                    </div>
-                    <div className="rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2">
-                      <div className="text-xs text-slate-500">Risk/Reward</div>
-                      <div className="font-semibold text-white">{risk.risk_reward_ratio.toFixed(2)}x</div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ─── Top Predictions Table ──────────────────────────────────────────────────
 function PredictionTable({ predictions, title, emptyMsg }: { predictions: Prediction[]; title: string; emptyMsg: string }) {
   if (!predictions.length) {
     return (
       <div className="card animate-in">
-        <h2 className="mb-3 text-lg font-semibold">{title}</h2>
+        <h2 className="mb-3 text-base font-bold">{title}</h2>
         <p className="text-sm text-slate-500">{emptyMsg}</p>
       </div>
     );
   }
   return (
     <div className="card animate-in">
-      <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-lg font-semibold">{title}</h2>
-        <Link href="/explorer" className="flex items-center gap-1 text-xs text-accent hover:underline">
+      <div className="mb-5 flex items-center justify-between">
+        <h2 className="text-base font-bold">{title}</h2>
+        <Link href="/explorer" className="inline-flex items-center gap-1.5 text-xs text-indigo-400 hover:text-indigo-300 transition font-medium">
           View all <ArrowRight size={12} />
         </Link>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-slate-700 text-left text-xs uppercase text-slate-400">
-              <th className="pb-2 pr-4">#</th>
-              <th className="pb-2 pr-4">Symbol</th>
-              <th className="pb-2 pr-4">Signal</th>
-              <th className="pb-2 pr-4">
+            <tr className="border-b border-white/[0.05] text-left text-[11px] uppercase text-slate-500 font-medium">
+              <th className="pb-3 pr-4">#</th>
+              <th className="pb-3 pr-4">Symbol</th>
+              <th className="pb-3 pr-4">Signal</th>
+              <th className="pb-3 pr-4">
                 Confidence
                 <Tip text="How sure the AI is about this prediction (0-100%)" />
               </th>
-              <th className="pb-2 pr-4">
+              <th className="pb-3 pr-4">
                 Score
                 <Tip text="Overall opportunity score combining AI, momentum, breakout, and volume signals" />
               </th>
-              <th className="hidden pb-2 lg:table-cell">What the AI sees</th>
+              <th className="hidden pb-3 lg:table-cell">What the AI sees</th>
             </tr>
           </thead>
           <tbody>
             {predictions.map((p, i) => (
-              <tr key={p.symbol} className="border-b border-slate-800 transition hover:bg-slate-700/30">
-                <td className="py-2.5 pr-4 text-slate-500">{i + 1}</td>
-                <td className="py-2.5 pr-4">
-                  <Link href={`/explorer?stock=${p.symbol}`} className="font-medium text-white hover:text-accent transition">
+              <tr key={p.symbol} className="border-b border-white/[0.03] table-row-hover">
+                <td className="py-3 pr-4 text-slate-600 text-xs">{i + 1}</td>
+                <td className="py-3 pr-4">
+                  <Link href={`/explorer?stock=${p.symbol}`} className="font-semibold text-white hover:text-indigo-400 transition">
                     {p.symbol}
                   </Link>
                 </td>
-                <td className="py-2.5 pr-4"><SignalBadge signal={p.signal} /></td>
-                <td className="py-2.5 pr-4 text-slate-300">{Math.round(p.confidence * 100)}%</td>
-                <td className="py-2.5 pr-4 w-32"><ScoreBar score={p.opportunity_score} label="" /></td>
-                <td className="hidden py-2.5 text-xs text-slate-400 lg:table-cell max-w-xs truncate">{p.explanation}</td>
+                <td className="py-3 pr-4"><SignalBadge signal={p.signal} /></td>
+                <td className="py-3 pr-4 text-slate-300 number-display">{Math.round(p.confidence * 100)}%</td>
+                <td className="py-3 pr-4 w-32"><ScoreBar score={p.opportunity_score} label="" /></td>
+                <td className="hidden py-3 text-xs text-slate-500 lg:table-cell max-w-xs truncate">{p.explanation}</td>
               </tr>
             ))}
           </tbody>
@@ -725,25 +463,27 @@ function PredictionTable({ predictions, title, emptyMsg }: { predictions: Predic
 // ─── Getting Started Banner ─────────────────────────────────────────────────
 function GettingStartedBanner({ onFullScan, onLiteScan, scanning }: { onFullScan: () => void; onLiteScan: () => void; scanning: boolean }) {
   return (
-    <div className="animate-in rounded-xl border border-blue-700/30 bg-gradient-to-r from-blue-900/30 via-purple-900/20 to-slate-900 p-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="space-y-2">
+    <div className="animate-in rounded-2xl border border-indigo-500/15 p-7 gradient-border"
+      style={{ background: "linear-gradient(135deg, rgba(99,102,241,0.08), rgba(139,92,246,0.05), rgba(6,8,15,0.9))" }}>
+      <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="space-y-3">
           <h2 className="text-xl font-bold text-white">Welcome! Let&apos;s scan the market</h2>
-          <p className="text-sm text-slate-300">
-            Click <strong>Lite Scan</strong> to start fast with 50 large-cap stocks, or <strong>Full Scan</strong> to analyze 2000+ NSE stocks.
+          <p className="text-sm text-slate-300/80">
+            Click <strong className="text-white">Lite Scan</strong> to start fast with 50 large-cap stocks, or <strong className="text-white">Full Scan</strong> to analyze 2000+ NSE stocks.
           </p>
-          <div className="flex flex-wrap gap-3 text-xs text-slate-400">
-            <span className="flex items-center gap-1"><Target size={12} className="text-blue-400" /> Filter quality stocks</span>
-            <span className="flex items-center gap-1"><Brain size={12} className="text-purple-400" /> Run ML models</span>
-            <span className="flex items-center gap-1"><Zap size={12} className="text-yellow-400" /> Detect breakouts</span>
-            <span className="flex items-center gap-1"><Shield size={12} className="text-green-400" /> Calculate risk</span>
+          <div className="flex flex-wrap gap-4 text-xs text-slate-500">
+            <span className="flex items-center gap-1.5"><Target size={11} className="text-indigo-400" /> Filter quality stocks</span>
+            <span className="flex items-center gap-1.5"><Brain size={11} className="text-purple-400" /> Run ML models</span>
+            <span className="flex items-center gap-1.5"><Zap size={11} className="text-amber-400" /> Detect breakouts</span>
+            <span className="flex items-center gap-1.5"><Shield size={11} className="text-emerald-400" /> Calculate risk</span>
           </div>
         </div>
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2.5">
           <button
             onClick={onLiteScan}
             disabled={scanning}
-            className="flex items-center gap-2 whitespace-nowrap rounded-lg bg-gradient-to-r from-green-600 to-emerald-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-green-900/30 transition hover:from-green-500 hover:to-emerald-500 disabled:opacity-50"
+            className="flex items-center justify-center gap-2 whitespace-nowrap rounded-xl px-6 py-3 text-sm font-semibold text-white shadow-lg transition disabled:opacity-50"
+            style={{ background: "linear-gradient(135deg, #22c55e, #10b981)", boxShadow: "0 4px 16px rgba(34,197,94,0.25)" }}
           >
             {scanning ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
             {scanning ? "Scanning..." : "Lite Scan (Fast)"}
@@ -751,7 +491,7 @@ function GettingStartedBanner({ onFullScan, onLiteScan, scanning }: { onFullScan
           <button
             onClick={onFullScan}
             disabled={scanning}
-            className="flex items-center gap-2 whitespace-nowrap rounded-lg bg-gradient-to-r from-blue-600 to-purple-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-900/30 transition hover:from-blue-500 hover:to-purple-500 disabled:opacity-50"
+            className="btn-primary py-3 px-6 disabled:opacity-50"
           >
             {scanning ? <Loader2 size={16} className="animate-spin" /> : <Play size={16} />}
             {scanning ? "Scanning..." : "Full Scan (2000+ stocks)"}
@@ -775,30 +515,34 @@ function ScanProgressBanner({ message, isError, progress, currentStep, stocksPro
   const isRunning = !isError && (progress !== undefined && progress < 100);
   const pct = progress ?? 0;
   return (
-    <div className={`animate-in rounded-lg border px-4 py-3 text-sm ${
+    <div className={`animate-in rounded-2xl border px-5 py-4 text-sm ${
       isError
-        ? "border-red-800 bg-red-900/30 text-red-300"
+        ? "border-red-500/20 bg-red-500/[0.06] text-red-300"
         : isRunning
-        ? "border-blue-800 bg-blue-900/30 text-blue-300"
-        : "border-green-800 bg-green-900/30 text-green-300"
+        ? "border-indigo-500/20 bg-indigo-500/[0.06] text-indigo-300"
+        : "border-emerald-500/20 bg-emerald-500/[0.06] text-emerald-300"
     }`}>
       <div className="flex items-center gap-3">
         {isRunning && <Loader2 size={16} className="shrink-0 animate-spin" />}
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-2">
             <span className="truncate font-medium">{currentStep || message}</span>
-            {isRunning && <span className="shrink-0 tabular-nums font-semibold">{pct}%</span>}
+            {isRunning && <span className="shrink-0 tabular-nums font-bold">{pct}%</span>}
           </div>
           {isRunning && (
-            <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-700/60">
+            <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-white/[0.06]">
               <div
-                className="h-full rounded-full bg-gradient-to-r from-blue-500 to-purple-500 transition-all duration-500 ease-out"
-                style={{ width: `${pct}%` }}
+                className="h-full rounded-full transition-all duration-500 ease-out"
+                style={{
+                  width: `${pct}%`,
+                  background: "linear-gradient(90deg, #6366f1, #8b5cf6, #a78bfa)",
+                  boxShadow: "0 0 12px rgba(99,102,241,0.4)",
+                }}
               />
             </div>
           )}
           {isRunning && stocksTotal !== undefined && stocksTotal > 0 && (
-            <p className="mt-1 text-xs text-slate-400">
+            <p className="mt-1.5 text-xs text-slate-500">
               {stocksProcessed ?? 0} / {stocksTotal} stocks processed
             </p>
           )}
@@ -810,30 +554,27 @@ function ScanProgressBanner({ message, isError, progress, currentStep, stocksPro
 
 // ─── Quick Actions Panel ─────────────────────────────────────────────────────
 function QuickActions() {
+  const actions = [
+    { href: "/watchlist", icon: TrendingUp, color: "text-emerald-400", bg: "bg-emerald-500/10", hoverBorder: "hover:border-emerald-500/25", title: "Today's Picks", desc: "AI-curated watchlist" },
+    { href: "/explorer", icon: BarChart3, color: "text-indigo-400", bg: "bg-indigo-500/10", hoverBorder: "hover:border-indigo-500/25", title: "Explore Stocks", desc: "Charts & indicators" },
+    { href: "/paper-trading", icon: Sparkles, color: "text-purple-400", bg: "bg-purple-500/10", hoverBorder: "hover:border-purple-500/25", title: "Paper Trade", desc: "Practice risk-free" },
+    { href: "/help", icon: Info, color: "text-amber-400", bg: "bg-amber-500/10", hoverBorder: "hover:border-amber-500/25", title: "Learn More", desc: "How it works" },
+  ];
+
   return (
     <div className="card animate-in">
-      <h2 className="mb-3 text-sm font-semibold text-slate-400 uppercase tracking-wider">Quick Links</h2>
+      <h2 className="mb-4 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Quick Links</h2>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Link href="/watchlist" className="flex flex-col items-center gap-2 rounded-lg border border-slate-700 bg-slate-800/50 p-4 text-center transition hover:border-green-600/50 hover:bg-green-900/10">
-          <TrendingUp size={24} className="text-green-400" />
-          <span className="text-xs font-medium text-slate-300">Today&apos;s Picks</span>
-          <span className="text-[10px] text-slate-500">AI-curated watchlist</span>
-        </Link>
-        <Link href="/explorer" className="flex flex-col items-center gap-2 rounded-lg border border-slate-700 bg-slate-800/50 p-4 text-center transition hover:border-blue-600/50 hover:bg-blue-900/10">
-          <BarChart3 size={24} className="text-blue-400" />
-          <span className="text-xs font-medium text-slate-300">Explore Stocks</span>
-          <span className="text-[10px] text-slate-500">Charts & indicators</span>
-        </Link>
-        <Link href="/paper-trading" className="flex flex-col items-center gap-2 rounded-lg border border-slate-700 bg-slate-800/50 p-4 text-center transition hover:border-purple-600/50 hover:bg-purple-900/10">
-          <Sparkles size={24} className="text-purple-400" />
-          <span className="text-xs font-medium text-slate-300">Paper Trade</span>
-          <span className="text-[10px] text-slate-500">Practice risk-free</span>
-        </Link>
-        <Link href="/help" className="flex flex-col items-center gap-2 rounded-lg border border-slate-700 bg-slate-800/50 p-4 text-center transition hover:border-yellow-600/50 hover:bg-yellow-900/10">
-          <Info size={24} className="text-yellow-400" />
-          <span className="text-xs font-medium text-slate-300">Learn More</span>
-          <span className="text-[10px] text-slate-500">How it works</span>
-        </Link>
+        {actions.map((a) => (
+          <Link key={a.href} href={a.href}
+            className={`flex flex-col items-center gap-2.5 rounded-xl border border-white/[0.05] bg-white/[0.02] p-4 text-center transition-all duration-200 ${a.hoverBorder} hover:bg-white/[0.04]`}>
+            <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${a.bg}`}>
+              <a.icon size={20} className={a.color} />
+            </div>
+            <span className="text-xs font-semibold text-slate-200">{a.title}</span>
+            <span className="text-[10px] text-slate-500">{a.desc}</span>
+          </Link>
+        ))}
       </div>
     </div>
   );
@@ -846,10 +587,6 @@ export default function DashboardPage() {
   const [sells, setSells] = useState<Prediction[]>([]);
   const [meta, setMeta] = useState<MetaStrategyStatus | null>(null);
   const [training, setTraining] = useState<TrainingStatus | null>(null);
-  const [portfolioAllocation, setPortfolioAllocation] = useState<PortfolioAllocation | null>(null);
-  const [paperPortfolio, setPaperPortfolio] = useState<PaperPortfolio | null>(null);
-  const [paperPerformance, setPaperPerformance] = useState<PaperPerformance | null>(null);
-  const [topRisks, setTopRisks] = useState<Record<string, RiskRecommendation>>({});
   const [retraining, setRetraining] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -860,69 +597,29 @@ export default function DashboardPage() {
   const [scanStocksProcessed, setScanStocksProcessed] = useState(0);
   const [scanStocksTotal, setScanStocksTotal] = useState(0);
   const [schedulerOn, setSchedulerOn] = useState(false);
-  const scanPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const trainingPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const stopScanPoll = useCallback(() => {
-    if (scanPollRef.current) {
-      clearInterval(scanPollRef.current);
-      scanPollRef.current = null;
-    }
-  }, []);
-
-  const stopTrainingPoll = useCallback(() => {
-    if (trainingPollRef.current) {
-      clearInterval(trainingPollRef.current);
-      trainingPollRef.current = null;
-    }
-  }, []);
-
-  const load = useCallback(async () => {
+  const load = async () => {
     try {
       setLoading(true);
       setError(null);
-      const [dashboard, portfolio, paperPort, paperPerf] = await Promise.all([
-        api.getDashboard(),
-        api.getPortfolio().catch(() => null),
-        api.getPaperPortfolio().catch(() => null),
-        api.getPaperPerformance().catch(() => null),
+      const [ov, buyList, sellList] = await Promise.all([
+        api.getOverview(),
+        api.getPredictions("BUY"),
+        api.getPredictions("SELL"),
       ]);
-      setOverview(dashboard.overview);
-      setBuys(dashboard.buys);
-      setSells(dashboard.sells);
-      setMeta(dashboard.meta);
-      setTraining(dashboard.training);
-      setSchedulerOn(dashboard.overview.scheduler?.running ?? false);
-      setPortfolioAllocation(portfolio);
-      setPaperPortfolio(paperPort);
-      setPaperPerformance(paperPerf);
+      setOverview(ov);
+      setBuys(buyList.slice(0, 20));
+      setSells(sellList.slice(0, 10));
+      setSchedulerOn(ov.scheduler?.running ?? false);
 
-      const riskTargets = dashboard.buys.slice(0, 5);
-      if (riskTargets.length) {
-        const riskEntries = await Promise.all(
-          riskTargets.map(async (prediction) => {
-            try {
-              const risk = await api.getRisk(prediction.symbol);
-              return [prediction.symbol, risk] as const;
-            } catch {
-              return null;
-            }
-          })
-        );
-        setTopRisks(
-          Object.fromEntries(
-            riskEntries.filter((entry): entry is readonly [string, RiskRecommendation] => Boolean(entry))
-          )
-        );
-      } else {
-        setTopRisks({});
-      }
+      api.getMetaStrategy().then(setMeta).catch(() => {});
+      api.getTrainingStatus().then(setTraining).catch(() => {});
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to load data. Is the backend running?");
     } finally {
       setLoading(false);
     }
-  }, []);
+  };
 
   useEffect(() => {
     load();
@@ -937,15 +634,11 @@ export default function DashboardPage() {
         startScanPoll("Scan");
       }
     }).catch(() => {});
-    return () => {
-      stopScanPoll();
-      stopTrainingPoll();
-    };
-  }, [load, stopScanPoll, stopTrainingPoll]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const startScanPoll = useCallback((label: string) => {
-    stopScanPoll();
-    scanPollRef.current = setInterval(async () => {
+  const startScanPoll = (label: string) => {
+    const poll = setInterval(async () => {
       try {
         const status = await api.getScanStatus();
         setScanProgress(status.progress ?? 0);
@@ -953,7 +646,7 @@ export default function DashboardPage() {
         setScanStocksProcessed(status.stocks_processed ?? 0);
         setScanStocksTotal(status.stocks_total ?? 0);
         if (!status.running) {
-          stopScanPoll();
+          clearInterval(poll);
           if (status.error) {
             setScanMsg(`${label} failed: ${status.error}`);
             setScanProgress(0);
@@ -962,7 +655,6 @@ export default function DashboardPage() {
             setScanMsg(`${label} complete! Refreshing...`);
             setScanProgress(100);
             setScanStep("Complete");
-            api.clearCache();
             await load();
             setTimeout(() => { setScanMsg(""); setScanProgress(0); setScanStep(""); }, 3000);
           }
@@ -971,20 +663,18 @@ export default function DashboardPage() {
           setScanMsg(status.current_step || `${label} in progress…`);
         }
       } catch {
-        // If API is unreachable, stop polling
-        stopScanPoll();
+        clearInterval(poll);
         setScanning(false);
         setScanMsg("");
       }
     }, 3000);
-  }, [load, stopScanPoll]);
+  };
 
   const handleFullScan = async () => {
     setScanning(true);
     setScanMsg("Full scan started — analyzing market, training AI models... this takes a few minutes.");
     try {
       await api.triggerFullScan();
-      setScanMsg("Full scan started - analyzing the market with existing models and saving results chunk by chunk.");
       startScanPoll("Full scan");
     } catch {
       setScanMsg("Failed to start scan. Is the backend running?");
@@ -1025,8 +715,6 @@ export default function DashboardPage() {
         await api.startScheduler();
         setSchedulerOn(true);
       }
-      api.clearCache();
-      load();
     } catch { /* ignore */ }
   };
 
@@ -1034,16 +722,13 @@ export default function DashboardPage() {
     setRetraining(true);
     try {
       await api.triggerTraining();
-      stopTrainingPoll();
-      trainingPollRef.current = setInterval(async () => {
+      const poll = setInterval(async () => {
         try {
           const st = await api.getTrainingStatus();
           setTraining(st);
           if (!st.training_in_progress) {
-            stopTrainingPoll();
+            clearInterval(poll);
             setRetraining(false);
-            api.clearCache();
-            load();
           }
         } catch { /* ignore */ }
       }, 5000);
@@ -1054,12 +739,12 @@ export default function DashboardPage() {
   if (loading) {
     return (
       <div className="space-y-6 animate-in">
-        <div className="skeleton h-8 w-48" />
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-          {Array.from({ length: 5 }).map((_, i) => <div key={i} className="skeleton h-20 rounded-xl" />)}
+        <div className="skeleton h-8 w-56" />
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5 stagger-in">
+          {Array.from({ length: 5 }).map((_, i) => <div key={i} className="skeleton h-24 rounded-2xl" />)}
         </div>
-        <div className="skeleton h-48 rounded-xl" />
-        <div className="skeleton h-64 rounded-xl" />
+        <div className="skeleton h-48 rounded-2xl" />
+        <div className="skeleton h-64 rounded-2xl" />
       </div>
     );
   }
@@ -1068,15 +753,15 @@ export default function DashboardPage() {
   if (error) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center animate-in">
-        <div className="card max-w-lg text-center">
+        <div className="card max-w-lg text-center gradient-border">
           <div className="mb-4 text-4xl">⚠️</div>
-          <h2 className="mb-2 text-lg font-semibold text-red-400">Connection Error</h2>
+          <h2 className="mb-2 text-lg font-bold text-red-400">Connection Error</h2>
           <p className="mb-4 text-sm text-slate-400">{error}</p>
           <p className="text-xs text-slate-500">
             Make sure the backend is running:{" "}
-            <code className="rounded bg-slate-700 px-2 py-0.5 text-accent">python -m backend.api_server</code>
+            <code className="rounded-lg bg-white/[0.05] px-2.5 py-1 text-indigo-400 text-xs">python -m backend.api_server</code>
           </p>
-          <button onClick={load} className="mt-4 rounded-lg bg-accent px-6 py-2 text-sm font-medium text-white transition hover:bg-blue-600">
+          <button onClick={load} className="btn-primary mt-5">
             Retry Connection
           </button>
         </div>
@@ -1087,12 +772,12 @@ export default function DashboardPage() {
   const hasData = overview && overview.analyzed_today > 0;
 
   return (
-    <div className="space-y-6 animate-in">
+    <div className="space-y-7 animate-in">
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">Market Overview</h1>
-          <p className="text-sm text-slate-400">
+          <h1 className="text-2xl font-bold tracking-tight">Market Overview</h1>
+          <p className="mt-0.5 text-sm text-slate-500">
             AI-powered scanning of 2000+ NSE stocks
             {overview?.last_scan && (
               <> &middot; Last scan: {new Date(String(overview.last_scan.finished_at || overview.last_scan.started_at)).toLocaleString("en-IN")}</>
@@ -1103,36 +788,36 @@ export default function DashboardPage() {
           <button
             onClick={handleLiteScan}
             disabled={scanning}
-            className="flex items-center gap-1.5 rounded-lg border border-green-700 bg-green-900/40 px-4 py-2 text-sm text-green-400 transition hover:bg-green-900/60 disabled:opacity-50"
+            className="btn-secondary text-xs px-3.5 py-2 text-emerald-400 border-emerald-500/20 hover:border-emerald-500/30 hover:bg-emerald-500/[0.06] disabled:opacity-50"
           >
-            <Sparkles size={14} /> Lite Scan
+            <Sparkles size={13} /> Lite
           </button>
           <button
             onClick={handleQuickScan}
             disabled={scanning}
-            className="flex items-center gap-1.5 rounded-lg border border-slate-600 bg-slate-700 px-4 py-2 text-sm text-white transition hover:bg-slate-600 disabled:opacity-50"
+            className="btn-secondary text-xs px-3.5 py-2 disabled:opacity-50"
           >
-            <Zap size={14} /> Quick Scan
+            <Zap size={13} /> Quick
           </button>
           <button
             onClick={handleFullScan}
             disabled={scanning}
-            className="flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-600 disabled:opacity-50"
+            className="btn-primary text-xs px-4 py-2 disabled:opacity-50"
           >
-            {scanning ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+            {scanning ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
             Full Scan
           </button>
           <button
             onClick={toggleScheduler}
-            className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm transition ${
+            className={`btn-secondary text-xs px-3.5 py-2 ${
               schedulerOn
-                ? "bg-green-900/40 text-green-400 border border-green-700 hover:bg-green-900/60"
-                : "bg-slate-700 text-slate-300 border border-slate-600 hover:bg-slate-600"
+                ? "text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/[0.06]"
+                : ""
             }`}
             title={schedulerOn ? "Auto-scan every 30 min during market hours" : "Turn on automatic scanning"}
           >
-            {schedulerOn ? <Pause size={14} /> : <Play size={14} />}
-            <span className={`inline-block h-2 w-2 rounded-full ${schedulerOn ? "bg-green-400 pulse-dot" : "bg-slate-500"}`} />
+            {schedulerOn ? <Pause size={13} /> : <Play size={13} />}
+            <span className={`inline-block h-1.5 w-1.5 rounded-full ${schedulerOn ? "bg-emerald-400 pulse-dot" : "bg-slate-600"}`} />
             Auto {schedulerOn ? "ON" : "OFF"}
           </button>
         </div>
@@ -1153,7 +838,7 @@ export default function DashboardPage() {
 
       {/* Stats Grid */}
       {overview && (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5 stagger-in">
           <StatCard label="Stocks Scanned" value={overview.total_stocks} icon={BarChart3}
             tip="Total NSE stocks that were downloaded and checked for quality" />
           <StatCard label="Analyzed Today" value={overview.analyzed_today} icon={Brain}
@@ -1171,8 +856,8 @@ export default function DashboardPage() {
       {hasData && overview && (
         <div className="grid gap-4 lg:grid-cols-2">
           <div className="card animate-in">
-            <div className="flex items-center gap-2 mb-4">
-              <h2 className="text-lg font-semibold">Signal Distribution</h2>
+            <div className="flex items-center gap-2.5 mb-5">
+              <h2 className="text-base font-bold">Signal Distribution</h2>
               <Tip text="Shows how many stocks the AI recommends to Buy, Sell, or Hold. Mostly Buy signals = bullish market." />
             </div>
             <SignalRing buy={overview.buy_signals} sell={overview.sell_signals} hold={overview.hold_signals} />
@@ -1187,24 +872,10 @@ export default function DashboardPage() {
       {/* Meta-AI Strategy Mix */}
       {meta && <StrategyMixPanel meta={meta} />}
 
-      {hasData && overview && (
-        <ActionPlanPanel overview={overview} meta={meta} buys={buys} />
-      )}
-
-      {hasData && (
-        <CapitalPlanPanel
-          allocation={portfolioAllocation}
-          paperPortfolio={paperPortfolio}
-          paperPerformance={paperPerformance}
-        />
-      )}
-
       {/* Model Training Status */}
       {training && (
         <TrainingStatusPanel training={training} onRetrain={handleRetrain} retraining={retraining} />
       )}
-
-      {hasData && <ExecutionPanel predictions={buys} risks={topRisks} />}
 
       {/* Top Buys */}
       <PredictionTable
