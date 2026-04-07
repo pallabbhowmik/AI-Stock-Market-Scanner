@@ -112,6 +112,19 @@ export default function WatchlistPage() {
     return groups;
   };
 
+  const categories = groupByCategory(allItems);
+  const cats = Object.keys(CATEGORY_META).filter(k => categories[k]?.length);
+  // Also include any extra categories not in our predefined list
+  Object.keys(categories).forEach(k => { if (!cats.includes(k)) cats.push(k); });
+
+  const currentItems = useMemo(() => {
+    return (categories[activeTab] || []).filter((item) =>
+      !deferredSearch || item.symbol.toLowerCase().includes(deferredSearch.toLowerCase())
+    );
+  }, [activeTab, categories, deferredSearch]);
+
+  const totalStocks = allItems.length;
+
   if (loading) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center animate-in">
@@ -140,19 +153,6 @@ export default function WatchlistPage() {
       </div>
     );
   }
-
-  const categories = groupByCategory(allItems);
-  const cats = Object.keys(CATEGORY_META).filter(k => categories[k]?.length);
-  // Also include any extra categories not in our predefined list
-  Object.keys(categories).forEach(k => { if (!cats.includes(k)) cats.push(k); });
-
-  const currentItems = useMemo(() => {
-    return (categories[activeTab] || []).filter((item) =>
-      !deferredSearch || item.symbol.toLowerCase().includes(deferredSearch.toLowerCase())
-    );
-  }, [activeTab, categories, deferredSearch]);
-
-  const totalStocks = allItems.length;
 
   return (
     <div className="space-y-6 animate-in">
